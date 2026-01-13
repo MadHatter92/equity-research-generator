@@ -20,13 +20,12 @@ app = FastAPI(
 )
 
 # CORS middleware for frontend
-# Add your Render frontend URL here after deployment
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:8000",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:8000",
-    "https://equity-research-app.onrender.com",  # Update with your actual Render frontend URL
+    "https://equity-research-app.onrender.com",
 ]
 
 app.add_middleware(
