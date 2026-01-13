@@ -150,17 +150,11 @@
     <script src="config.js"></script>
     <script>
         // API_BASE is now loaded from config.js
-        let token = localStorage.getItem('token');
         let selectedStock = null;
         let searchTimeout = null;
 
-        // Check authentication
+        // Initialize page
         document.addEventListener('DOMContentLoaded', () => {
-            if (!token) {
-                window.location.href = 'index.html';
-                return;
-            }
-            loadUsage();
 
             // Setup search input
             document.getElementById('searchInput').addEventListener('input', handleSearch);
@@ -184,28 +178,10 @@
                 ...options,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
                     ...options.headers
                 }
             });
-
-            if (response.status === 401) {
-                localStorage.removeItem('token');
-                window.location.href = 'index.html';
-                throw new Error('Session expired');
-            }
-
             return response;
-        }
-
-        async function loadUsage() {
-            try {
-                const response = await apiCall('/usage');
-                const usage = await response.json();
-                document.getElementById('reportsRemaining').textContent = usage.reports_remaining;
-            } catch (error) {
-                console.error('Failed to load usage:', error);
-            }
         }
 
         function handleSearch(e) {

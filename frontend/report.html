@@ -85,16 +85,10 @@
     <script src="config.js"></script>
     <script>
         // API_BASE is now loaded from config.js
-        let token = localStorage.getItem('token');
         let currentReport = null;
 
-        // Check authentication
+        // Initialize page
         document.addEventListener('DOMContentLoaded', () => {
-            if (!token) {
-                window.location.href = 'index.html';
-                return;
-            }
-
             const urlParams = new URLSearchParams(window.location.search);
             const reportId = urlParams.get('id');
 
@@ -109,11 +103,7 @@
         async function loadReport(reportId) {
             try {
                 // First get report metadata
-                const metaResponse = await fetch(`${API_BASE}/reports/${reportId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+                const metaResponse = await fetch(`${API_BASE}/reports/${reportId}`);
 
                 if (!metaResponse.ok) {
                     throw new Error('Report not found');
@@ -123,11 +113,7 @@
                 document.getElementById('reportTitle').textContent = `${currentReport.company_name} (${currentReport.ticker})`;
 
                 // Then get HTML content
-                const htmlResponse = await fetch(`${API_BASE}/reports/${reportId}/html`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+                const htmlResponse = await fetch(`${API_BASE}/reports/${reportId}/html`);
 
                 if (!htmlResponse.ok) {
                     throw new Error('Failed to load report content');

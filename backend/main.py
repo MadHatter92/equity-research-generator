@@ -148,8 +148,7 @@ async def get_usage_stats(current_user: dict = Depends(auth.get_current_user)):
 @app.get("/api/stocks/search")
 async def search_indian_stocks(
     q: str,
-    limit: int = 10,
-    current_user: dict = Depends(auth.get_current_user)
+    limit: int = 10
 ):
     """Search for Indian stocks by name or symbol."""
     if len(q) < 1:
@@ -162,8 +161,7 @@ async def search_indian_stocks(
 @app.get("/api/stocks/{symbol}")
 async def get_stock_info(
     symbol: str,
-    exchange: str = "NSE",
-    current_user: dict = Depends(auth.get_current_user)
+    exchange: str = "NSE"
 ):
     """Get basic stock information (preview before generating report)."""
     stock_data = fetch_stock_data(symbol, exchange)
@@ -190,20 +188,14 @@ async def get_stock_info(
     }
 
 
+# Default user ID for non-authenticated access
+DEFAULT_USER_ID = 1
+
+
 # Report Generation Routes
 @app.post("/api/reports/generate")
-async def generate_report(
-    request: GenerateReportRequest,
-    current_user: dict = Depends(auth.get_current_user)
-):
+async def generate_report(request: GenerateReportRequest):
     """Generate a new equity research report."""
-    # Check usage limit
-    if not db.can_generate_report(current_user["id"]):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Monthly report limit reached. Please wait for the next billing cycle."
-        )
-
     # Fetch stock data
     stock_data = fetch_stock_data(request.symbol, request.exchange)
 
@@ -225,7 +217,7 @@ async def generate_report(
 
     # Save report to database
     report_id = db.save_report(
-        user_id=current_user["id"],
+        user_id=DEFAULT_USER_ID,
         company_name=basic.get("company_name", request.symbol),
         ticker=basic.get("ticker", request.symbol),
         exchange=request.exchange,
@@ -237,40 +229,27 @@ async def generate_report(
         report_data=json.dumps({"stock_data": stock_data, "analysis": analysis})
     )
 
-    # Increment usage counter
-    db.increment_usage(current_user["id"])
-
-    # Get updated usage
-    usage = db.get_usage(current_user["id"])
-
     return {
         "report_id": report_id,
         "company_name": basic.get("company_name", ""),
         "ticker": request.symbol,
         "recommendation": analysis.get("recommendation", "HOLD"),
         "target_price": analysis.get("target_price", 0),
-        "current_price": price.get("current_price", 0),
-        "usage": usage
+        "current_price": price.get("current_price", 0)
     }
 
 
 @app.get("/api/reports")
-async def get_user_reports(
-    limit: int = 50,
-    current_user: dict = Depends(auth.get_current_user)
-):
-    """Get user's report history."""
-    reports = db.get_user_reports(current_user["id"], limit=limit)
+async def get_user_reports(limit: int = 50):
+    """Get report history."""
+    reports = db.get_user_reports(DEFAULT_USER_ID, limit=limit)
     return reports
 
 
 @app.get("/api/reports/{report_id}")
-async def get_report(
-    report_id: int,
-    current_user: dict = Depends(auth.get_current_user)
-):
+async def get_report(report_id: int):
     """Get a specific report by ID."""
-    report = db.get_report_by_id(report_id, current_user["id"])
+    report = db.get_report_by_id(report_id, DEFAULT_USER_ID)
 
     if not report:
         raise HTTPException(
@@ -282,12 +261,9 @@ async def get_report(
 
 
 @app.get("/api/reports/{report_id}/html", response_class=HTMLResponse)
-async def get_report_html(
-    report_id: int,
-    current_user: dict = Depends(auth.get_current_user)
-):
+async def get_report_html(report_id: int):
     """Get the HTML content of a report for viewing."""
-    report = db.get_report_by_id(report_id, current_user["id"])
+    report = db.get_report_by_id(report_id, DEFAULT_USER_ID)
 
     if not report:
         raise HTTPException(
@@ -299,12 +275,9 @@ async def get_report_html(
 
 
 @app.delete("/api/reports/{report_id}")
-async def delete_report(
-    report_id: int,
-    current_user: dict = Depends(auth.get_current_user)
-):
+async def delete_report(report_id: int):
     """Delete a report."""
-    deleted = db.delete_report(report_id, current_user["id"])
+    deleted = db.delete_report(report_id, DEFAULT_USER_ID)
 
     if not deleted:
         raise HTTPException(

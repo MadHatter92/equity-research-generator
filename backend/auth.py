@@ -8,13 +8,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 import database as db
 
-# Password hashing - truncate to 72 bytes for bcrypt compatibility
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
-
-
-def _prepare_password(password: str) -> str:
-    """Truncate password to 72 bytes for bcrypt compatibility."""
-    return password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
+# Password hashing - using pbkdf2_sha256 (no length limit, secure)
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # Bearer token security
 security = HTTPBearer()
