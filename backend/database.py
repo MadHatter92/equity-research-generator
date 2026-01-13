@@ -5,10 +5,18 @@ from pathlib import Path
 from typing import Optional, List
 from pydantic import BaseModel
 
-# Ensure data directory exists - Use Render's persistent disk if available
-DATA_DIR = Path(os.getenv("RENDER_DISK_PATH", str(Path(__file__).resolve().parent.parent / "data")))
+# Ensure data directory exists
+# On Render: use /opt/render/project/src/data if it exists, otherwise use local data folder
+if os.path.exists("/opt/render/project/src"):
+    # We're on Render
+    DATA_DIR = Path("/opt/render/project/src/data")
+else:
+    # Local development
+    DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "research.db"
+print(f"Database path: {DB_PATH}")
 
 
 # Pydantic Models
