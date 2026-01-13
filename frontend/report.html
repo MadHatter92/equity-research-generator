@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>View Report - Equity Research Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .gradient-header {
+            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+        }
+        #reportFrame {
+            width: 100%;
+            height: calc(100vh - 64px);
+            border: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Navigation -->
+    <nav class="gradient-header text-white shadow-lg fixed top-0 left-0 right-0 z-50">
+        <div class="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-4">
+                    <a href="dashboard.html" class="flex items-center space-x-2 text-blue-200 hover:text-white transition-all">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                        <span>Dashboard</span>
+                    </a>
+                    <span class="text-blue-300">|</span>
+                    <h1 id="reportTitle" class="text-xl font-bold">Loading Report...</h1>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <button onclick="printReport()" class="flex items-center space-x-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-all">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                        </svg>
+                        <span>Print</span>
+                    </button>
+                    <button onclick="downloadReport()" class="flex items-center space-x-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-all">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                        <span>Download</span>
+                    </button>
+                    <a href="generate.html" class="flex items-center space-x-2 bg-blue-500 hover:bg-blue-400 px-4 py-2 rounded-lg transition-all">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        <span>New Report</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="flex items-center justify-center min-h-screen pt-16">
+        <div class="text-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mx-auto mb-4"></div>
+            <p class="text-gray-600">Loading report...</p>
+        </div>
+    </div>
+
+    <!-- Error State -->
+    <div id="errorState" class="hidden flex items-center justify-center min-h-screen pt-16">
+        <div class="text-center max-w-md mx-auto p-6">
+            <svg class="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <h3 class="text-xl font-semibold text-gray-900 mb-2">Report Not Found</h3>
+            <p class="text-gray-600 mb-4">The report you're looking for doesn't exist or you don't have access to it.</p>
+            <a href="dashboard.html" class="inline-block bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-all">
+                Back to Dashboard
+            </a>
+        </div>
+    </div>
+
+    <!-- Report Container -->
+    <div id="reportContainer" class="hidden pt-16">
+        <iframe id="reportFrame" sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+        // API_BASE is now loaded from config.js
+        let token = localStorage.getItem('token');
+        let currentReport = null;
+
+        // Check authentication
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!token) {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const reportId = urlParams.get('id');
+
+            if (!reportId) {
+                showError();
+                return;
+            }
+
+            loadReport(reportId);
+        });
+
+        async function loadReport(reportId) {
+            try {
+                // First get report metadata
+                const metaResponse = await fetch(`${API_BASE}/reports/${reportId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!metaResponse.ok) {
+                    throw new Error('Report not found');
+                }
+
+                currentReport = await metaResponse.json();
+                document.getElementById('reportTitle').textContent = `${currentReport.company_name} (${currentReport.ticker})`;
+
+                // Then get HTML content
+                const htmlResponse = await fetch(`${API_BASE}/reports/${reportId}/html`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!htmlResponse.ok) {
+                    throw new Error('Failed to load report content');
+                }
+
+                const html = await htmlResponse.text();
+
+                // Load into iframe
+                const iframe = document.getElementById('reportFrame');
+                const blob = new Blob([html], { type: 'text/html' });
+                iframe.src = URL.createObjectURL(blob);
+
+                // Show report
+                document.getElementById('loadingState').classList.add('hidden');
+                document.getElementById('reportContainer').classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Failed to load report:', error);
+                showError();
+            }
+        }
+
+        function showError() {
+            document.getElementById('loadingState').classList.add('hidden');
+            document.getElementById('errorState').classList.remove('hidden');
+        }
+
+        function printReport() {
+            const iframe = document.getElementById('reportFrame');
+            iframe.contentWindow.print();
+        }
+
+        function downloadReport() {
+            if (!currentReport) return;
+
+            const iframe = document.getElementById('reportFrame');
+            const html = iframe.contentDocument.documentElement.outerHTML;
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentReport.ticker}_Research_Report.html`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>

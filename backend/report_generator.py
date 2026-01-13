@@ -1,0 +1,949 @@
+import anthropic
+import json
+from typing import Dict, Any, Optional
+from datetime import datetime
+
+from config import ANTHROPIC_API_KEY
+from yahoo_finance import format_market_cap, format_indian_number, calculate_upside
+
+
+def generate_ai_analysis(stock_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Use Claude to generate investment analysis based on stock data.
+    Returns structured analysis for the report.
+    """
+    if not ANTHROPIC_API_KEY:
+        return generate_fallback_analysis(stock_data)
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    # Prepare data summary for Claude
+    data_summary = prepare_data_summary(stock_data)
+
+    prompt = f"""You are an expert equity research analyst. Based on the following stock data, generate a comprehensive investment analysis.
+
+STOCK DATA:
+{json.dumps(data_summary, indent=2)}
+
+Please provide your analysis in the following JSON format:
+{{
+    "recommendation": "BUY" or "HOLD" or "SELL",
+    "target_price": <number - your 12-month target price>,
+    "investment_thesis": "<2-3 sentence summary of why to invest or not>",
+    "bull_case": [
+        "<point 1>",
+        "<point 2>",
+        "<point 3>",
+        "<point 4>"
+    ],
+    "bear_case": [
+        "<point 1>",
+        "<point 2>",
+        "<point 3>"
+    ],
+    "key_risks": [
+        {{
+            "title": "<risk title>",
+            "description": "<detailed risk description>"
+        }},
+        {{
+            "title": "<risk title>",
+            "description": "<detailed risk description>"
+        }}
+    ],
+    "business_analysis": "<paragraph analyzing the business model, competitive position, and growth drivers>",
+    "financial_analysis": "<paragraph analyzing financial health, profitability trends, and key metrics>",
+    "valuation_analysis": "<paragraph on valuation - is it expensive, cheap, fair value? Compare to historical and peers>",
+    "competitive_advantages": [
+        {{
+            "title": "<moat/advantage name>",
+            "description": "<explanation>"
+        }}
+    ]
+}}
+
+Important guidelines:
+1. Be objective and balanced - acknowledge both positives and negatives
+2. Base your analysis on the actual data provided
+3. Target price should be realistic based on current price and fundamentals
+4. Consider Indian market context
+5. Return ONLY valid JSON, no other text"""
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        # Extract JSON from response
+        response_text = response.content[0].text.strip()
+
+        # Try to parse JSON
+        # Handle cases where response might have markdown code blocks
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0]
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0]
+
+        analysis = json.loads(response_text)
+        return analysis
+
+    except Exception as e:
+        print(f"Error generating AI analysis: {str(e)}")
+        return generate_fallback_analysis(stock_data)
+
+
+def prepare_data_summary(stock_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Prepare a clean summary of stock data for AI analysis."""
+    basic = stock_data.get("basic_info", {})
+    price = stock_data.get("price_info", {})
+    valuation = stock_data.get("valuation", {})
+    financials = stock_data.get("financials", {})
+    returns = stock_data.get("returns", {})
+    balance = stock_data.get("balance_sheet", {})
+    per_share = stock_data.get("per_share", {})
+    dividends = stock_data.get("dividends", {})
+    analyst = stock_data.get("analyst_data", {})
+
+    return {
+        "company_name": basic.get("company_name"),
+        "sector": basic.get("sector"),
+        "industry": basic.get("industry"),
+        "description": basic.get("description", "")[:500],  # Truncate long descriptions
+        "current_price": price.get("current_price"),
+        "52_week_high": price.get("fifty_two_week_high"),
+        "52_week_low": price.get("fifty_two_week_low"),
+        "market_cap_inr": valuation.get("market_cap"),
+        "pe_ratio": valuation.get("pe_ratio"),
+        "pb_ratio": valuation.get("pb_ratio"),
+        "ev_to_ebitda": valuation.get("ev_to_ebitda"),
+        "peg_ratio": valuation.get("peg_ratio"),
+        "revenue": financials.get("revenue"),
+        "revenue_growth": financials.get("revenue_growth"),
+        "profit_margin": financials.get("profit_margin"),
+        "operating_margin": financials.get("operating_margin"),
+        "ebitda_margin": financials.get("ebitda_margin"),
+        "roe": returns.get("roe"),
+        "roa": returns.get("roa"),
+        "debt_to_equity": balance.get("debt_to_equity"),
+        "current_ratio": balance.get("current_ratio"),
+        "eps": per_share.get("eps"),
+        "book_value": per_share.get("book_value"),
+        "dividend_yield": dividends.get("dividend_yield"),
+        "analyst_target_price": analyst.get("target_mean_price"),
+        "analyst_recommendation": analyst.get("recommendation"),
+    }
+
+
+def generate_fallback_analysis(stock_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate basic analysis when AI is unavailable."""
+    basic = stock_data.get("basic_info", {})
+    price = stock_data.get("price_info", {})
+    valuation = stock_data.get("valuation", {})
+    financials = stock_data.get("financials", {})
+    returns = stock_data.get("returns", {})
+    analyst = stock_data.get("analyst_data", {})
+
+    current_price = price.get("current_price", 0)
+    pe_ratio = valuation.get("pe_ratio", 0)
+    roe = returns.get("roe", 0)
+
+    # Simple recommendation logic
+    if pe_ratio and pe_ratio < 15 and roe and roe > 0.15:
+        recommendation = "BUY"
+    elif pe_ratio and pe_ratio > 40:
+        recommendation = "SELL"
+    else:
+        recommendation = "HOLD"
+
+    # Simple target price (use analyst target or 10% upside)
+    analyst_target = analyst.get("target_mean_price", 0)
+    if analyst_target and analyst_target > 0:
+        target_price = analyst_target
+    else:
+        target_price = current_price * 1.10 if current_price else 0
+
+    return {
+        "recommendation": recommendation,
+        "target_price": round(target_price, 2),
+        "investment_thesis": f"{basic.get('company_name', 'This company')} operates in the {basic.get('sector', 'N/A')} sector. Based on current valuations and financial metrics, the stock appears to be fairly valued.",
+        "bull_case": [
+            f"Established player in {basic.get('sector', 'its')} sector",
+            "Consistent financial performance",
+            "Potential for growth in current market conditions",
+            "Reasonable valuation metrics"
+        ],
+        "bear_case": [
+            "Market volatility could impact short-term performance",
+            "Competition from industry peers",
+            "Macroeconomic headwinds"
+        ],
+        "key_risks": [
+            {
+                "title": "Market Risk",
+                "description": "General market volatility and economic conditions could impact stock performance."
+            },
+            {
+                "title": "Industry Risk",
+                "description": f"Changes in the {basic.get('sector', 'industry')} sector could affect the company's competitive position."
+            }
+        ],
+        "business_analysis": f"{basic.get('company_name', 'The company')} operates in the {basic.get('industry', basic.get('sector', 'N/A'))} space. The business model appears stable with ongoing operations across its core segments.",
+        "financial_analysis": f"The company shows {'strong' if roe and roe > 0.15 else 'moderate'} profitability metrics. {'ROE is healthy indicating efficient use of shareholder capital.' if roe and roe > 0.15 else 'Returns metrics are in line with industry standards.'}",
+        "valuation_analysis": f"At current P/E of {pe_ratio:.1f}x, the stock {'appears reasonably valued' if pe_ratio and 15 < pe_ratio < 30 else 'may be overvalued' if pe_ratio and pe_ratio > 30 else 'appears attractively valued'}.",
+        "competitive_advantages": [
+            {
+                "title": "Market Position",
+                "description": f"Established presence in the {basic.get('sector', 'industry')} sector"
+            }
+        ]
+    }
+
+
+def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -> str:
+    """Generate the complete HTML report."""
+
+    basic = stock_data.get("basic_info", {})
+    price = stock_data.get("price_info", {})
+    valuation = stock_data.get("valuation", {})
+    financials = stock_data.get("financials", {})
+    returns = stock_data.get("returns", {})
+    balance = stock_data.get("balance_sheet", {})
+    per_share = stock_data.get("per_share", {})
+    dividends = stock_data.get("dividends", {})
+    ownership = stock_data.get("ownership", {})
+
+    current_price = price.get("current_price", 0)
+    target_price = analysis.get("target_price", current_price * 1.1)
+    upside = calculate_upside(current_price, target_price)
+    recommendation = analysis.get("recommendation", "HOLD")
+
+    # Format values
+    market_cap_formatted = format_market_cap(valuation.get("market_cap", 0))
+    pe_ratio = valuation.get("pe_ratio", 0) or 0
+    pb_ratio = valuation.get("pb_ratio", 0) or 0
+    dividend_yield = (dividends.get("dividend_yield", 0) or 0) * 100
+    roe = (returns.get("roe", 0) or 0) * 100
+    fifty_two_week_low = price.get("fifty_two_week_low", 0)
+    fifty_two_week_high = price.get("fifty_two_week_high", 0)
+
+    # Generate bull points HTML
+    bull_points = "\n".join([f"<li>{point}</li>" for point in analysis.get("bull_case", [])])
+    bear_points = "\n".join([f"<li>{point}</li>" for point in analysis.get("bear_case", [])])
+
+    # Generate risk items HTML
+    risk_items = ""
+    for risk in analysis.get("key_risks", []):
+        risk_items += f'''
+        <div class="risk-item">
+            <span class="risk-icon">&#9888;</span>
+            <div>
+                <strong>{risk.get("title", "Risk")}:</strong> {risk.get("description", "")}
+            </div>
+        </div>
+        '''
+
+    # Generate competitive advantages HTML
+    moat_cards = ""
+    colors = ["var(--primary)", "var(--secondary)", "var(--warning)", "#9f7aea"]
+    for i, moat in enumerate(analysis.get("competitive_advantages", [])):
+        color = colors[i % len(colors)]
+        moat_cards += f'''
+        <div style="background: var(--bg-light); padding: 1.25rem; border-radius: 8px; border-left: 4px solid {color};">
+            <strong style="color: var(--primary);">{moat.get("title", "")}</strong>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.5rem;">{moat.get("description", "")}</p>
+        </div>
+        '''
+
+    # Recommendation color class
+    rec_class = recommendation.lower()
+
+    report_date = datetime.now().strftime("%B %d, %Y")
+
+    html = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{basic.get("company_name", "Company")} - Equity Research Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
+        :root {{
+            --primary: #1a365d;
+            --primary-light: #2c5282;
+            --secondary: #38a169;
+            --danger: #e53e3e;
+            --warning: #d69e2e;
+            --bg-light: #f7fafc;
+            --bg-card: #ffffff;
+            --text-primary: #1a202c;
+            --text-secondary: #4a5568;
+            --text-muted: #718096;
+            --border: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }}
+
+        body {{
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-light);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }}
+
+        .nav {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: var(--primary);
+            padding: 0 2rem;
+            z-index: 1000;
+            box-shadow: var(--shadow-lg);
+        }}
+
+        .nav-content {{
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 64px;
+        }}
+
+        .nav-brand {{
+            color: white;
+            font-size: 1.25rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }}
+
+        .nav-brand .ticker {{
+            background: rgba(255,255,255,0.2);
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+        }}
+
+        .nav-links {{
+            display: flex;
+            gap: 0.5rem;
+        }}
+
+        .nav-link {{
+            color: rgba(255,255,255,0.8);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }}
+
+        .nav-link:hover, .nav-link.active {{
+            background: rgba(255,255,255,0.15);
+            color: white;
+        }}
+
+        .header {{
+            margin-top: 64px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            color: white;
+            padding: 3rem 2rem;
+        }}
+
+        .header-content {{
+            max-width: 1400px;
+            margin: 0 auto;
+        }}
+
+        .header-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 2rem;
+        }}
+
+        .company-info h1 {{
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }}
+
+        .company-meta {{
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            font-size: 0.95rem;
+            opacity: 0.9;
+        }}
+
+        .recommendation-box {{
+            text-align: center;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 1.5rem 2.5rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }}
+
+        .recommendation {{
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }}
+
+        .recommendation.buy {{ color: #68d391; }}
+        .recommendation.hold {{ color: #f6e05e; }}
+        .recommendation.sell {{ color: #fc8181; }}
+
+        .price-info {{
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }}
+
+        .price-current {{
+            font-size: 1.5rem;
+            font-weight: 600;
+        }}
+
+        .metrics-strip {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }}
+
+        .metric-item {{
+            text-align: center;
+            padding: 1rem;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            transition: transform 0.2s, background 0.2s;
+        }}
+
+        .metric-item:hover {{
+            transform: translateY(-2px);
+            background: rgba(255,255,255,0.1);
+        }}
+
+        .metric-label {{
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+            margin-bottom: 0.25rem;
+        }}
+
+        .metric-value {{
+            font-size: 1.25rem;
+            font-weight: 600;
+        }}
+
+        .main {{
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }}
+
+        .section {{
+            background: var(--bg-card);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }}
+
+        .section-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.25rem 1.5rem;
+            background: linear-gradient(to right, var(--bg-light), transparent);
+            cursor: pointer;
+            transition: background 0.2s;
+            user-select: none;
+        }}
+
+        .section-header:hover {{
+            background: var(--bg-light);
+        }}
+
+        .section-title {{
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--primary);
+        }}
+
+        .section-icon {{
+            width: 32px;
+            height: 32px;
+            background: var(--primary);
+            color: white;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.875rem;
+        }}
+
+        .section-toggle {{
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.3s;
+        }}
+
+        .section.collapsed .section-toggle {{
+            transform: rotate(-90deg);
+        }}
+
+        .section-content {{
+            padding: 1.5rem;
+            border-top: 1px solid var(--border);
+            max-height: 2000px;
+            overflow: hidden;
+            transition: max-height 0.4s ease, padding 0.4s ease, opacity 0.3s ease;
+            opacity: 1;
+        }}
+
+        .section.collapsed .section-content {{
+            max-height: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            opacity: 0;
+        }}
+
+        .thesis-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }}
+
+        .thesis-card {{
+            padding: 1.25rem;
+            border-radius: 8px;
+            border-left: 4px solid;
+        }}
+
+        .thesis-card.bull {{
+            background: linear-gradient(to right, #f0fff4, transparent);
+            border-color: var(--secondary);
+        }}
+
+        .thesis-card.bear {{
+            background: linear-gradient(to right, #fff5f5, transparent);
+            border-color: var(--danger);
+        }}
+
+        .thesis-card h4 {{
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.75rem;
+            color: var(--text-secondary);
+        }}
+
+        .thesis-card ul {{
+            list-style: none;
+        }}
+
+        .thesis-card li {{
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+            color: var(--text-primary);
+        }}
+
+        .thesis-card li::before {{
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0.9rem;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }}
+
+        .thesis-card.bull li::before {{ background: var(--secondary); }}
+        .thesis-card.bear li::before {{ background: var(--danger); }}
+
+        .risks-container {{
+            margin-top: 1.5rem;
+        }}
+
+        .risk-item {{
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1rem;
+            background: #fffaf0;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            border-left: 3px solid var(--warning);
+        }}
+
+        .risk-icon {{
+            color: var(--warning);
+            font-size: 1.25rem;
+        }}
+
+        .business-desc {{
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+            font-size: 1rem;
+            line-height: 1.8;
+        }}
+
+        .valuation-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }}
+
+        .valuation-card {{
+            background: var(--bg-light);
+            padding: 1.25rem;
+            border-radius: 8px;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }}
+
+        .valuation-card:hover {{
+            transform: translateY(-3px);
+            box-shadow: var(--shadow);
+        }}
+
+        .valuation-metric {{
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }}
+
+        .valuation-value {{
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--primary);
+        }}
+
+        .disclaimer {{
+            background: #faf5ff;
+            border: 1px solid #e9d8fd;
+            border-radius: 8px;
+            padding: 1.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }}
+
+        .disclaimer h4 {{
+            color: #553c9a;
+            margin-bottom: 0.75rem;
+        }}
+
+        @media (max-width: 768px) {{
+            .nav-links {{ display: none; }}
+            .header-top {{ flex-direction: column; }}
+            .recommendation-box {{ width: 100%; }}
+        }}
+
+        @media print {{
+            .nav {{ display: none; }}
+            .header {{ margin-top: 0; }}
+            .section.collapsed .section-content {{
+                max-height: none;
+                opacity: 1;
+                padding: 1.5rem;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-content">
+            <div class="nav-brand">
+                <span>{basic.get("ticker", "")}</span>
+                <span class="ticker">NSE: {basic.get("ticker", "")}</span>
+            </div>
+            <div class="nav-links">
+                <a href="#summary" class="nav-link active">Summary</a>
+                <a href="#company" class="nav-link">Company</a>
+                <a href="#valuation" class="nav-link">Valuation</a>
+            </div>
+        </div>
+    </nav>
+
+    <header class="header">
+        <div class="header-content">
+            <div class="header-top">
+                <div class="company-info">
+                    <h1>{basic.get("company_name", "Company")}</h1>
+                    <div class="company-meta">
+                        <span>{basic.get("sector", "N/A")}</span>
+                        <span>|</span>
+                        <span>NSE: {basic.get("ticker", "")} | BSE: {basic.get("ticker", "")}</span>
+                        <span>|</span>
+                        <span>Report Date: {report_date}</span>
+                    </div>
+                </div>
+                <div class="recommendation-box">
+                    <div class="recommendation {rec_class}">{recommendation}</div>
+                    <div class="price-info">
+                        <div>CMP: <span class="price-current">₹{current_price:,.2f}</span></div>
+                        <div>Target: ₹{target_price:,.0f} | Upside: {upside:.1f}%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metrics-strip">
+                <div class="metric-item">
+                    <div class="metric-label">Market Cap</div>
+                    <div class="metric-value">{market_cap_formatted}</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">P/E Ratio</div>
+                    <div class="metric-value">{pe_ratio:.1f}x</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">P/B Ratio</div>
+                    <div class="metric-value">{pb_ratio:.1f}x</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">Dividend Yield</div>
+                    <div class="metric-value">{dividend_yield:.1f}%</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">52W Range</div>
+                    <div class="metric-value">₹{fifty_two_week_low:,.0f} - ₹{fifty_two_week_high:,.0f}</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">ROE</div>
+                    <div class="metric-value">{roe:.1f}%</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <!-- Investment Summary -->
+        <section class="section" id="summary">
+            <div class="section-header" onclick="toggleSection(this)">
+                <div class="section-title">
+                    <div class="section-icon">1</div>
+                    Investment Summary
+                </div>
+                <div class="section-toggle">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="section-content">
+                <p class="business-desc">{analysis.get("investment_thesis", "")}</p>
+
+                <div class="thesis-grid">
+                    <div class="thesis-card bull">
+                        <h4>Bull Case</h4>
+                        <ul>
+                            {bull_points}
+                        </ul>
+                    </div>
+                    <div class="thesis-card bear">
+                        <h4>Bear Case</h4>
+                        <ul>
+                            {bear_points}
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="risks-container">
+                    <h4 style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px;">Key Risks to Monitor</h4>
+                    {risk_items}
+                </div>
+            </div>
+        </section>
+
+        <!-- Company Overview -->
+        <section class="section" id="company">
+            <div class="section-header" onclick="toggleSection(this)">
+                <div class="section-title">
+                    <div class="section-icon">2</div>
+                    Company Overview
+                </div>
+                <div class="section-toggle">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="section-content">
+                <p class="business-desc">{basic.get("description", analysis.get("business_analysis", ""))}</p>
+
+                <h4 style="color: var(--primary); margin: 1.5rem 0 1rem;">Competitive Advantages</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                    {moat_cards}
+                </div>
+            </div>
+        </section>
+
+        <!-- Financial Analysis -->
+        <section class="section" id="financials">
+            <div class="section-header" onclick="toggleSection(this)">
+                <div class="section-title">
+                    <div class="section-icon">3</div>
+                    Financial Analysis
+                </div>
+                <div class="section-toggle">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="section-content">
+                <p class="business-desc">{analysis.get("financial_analysis", "")}</p>
+
+                <div class="valuation-grid">
+                    <div class="valuation-card">
+                        <div class="valuation-metric">Revenue</div>
+                        <div class="valuation-value">{format_market_cap(financials.get("revenue", 0))}</div>
+                    </div>
+                    <div class="valuation-card">
+                        <div class="valuation-metric">EBITDA</div>
+                        <div class="valuation-value">{format_market_cap(financials.get("ebitda", 0))}</div>
+                    </div>
+                    <div class="valuation-card">
+                        <div class="valuation-metric">Profit Margin</div>
+                        <div class="valuation-value">{(financials.get("profit_margin", 0) or 0) * 100:.1f}%</div>
+                    </div>
+                    <div class="valuation-card">
+                        <div class="valuation-metric">Debt/Equity</div>
+                        <div class="valuation-value">{(balance.get("debt_to_equity", 0) or 0) / 100:.2f}</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Valuation -->
+        <section class="section" id="valuation">
+            <div class="section-header" onclick="toggleSection(this)">
+                <div class="section-title">
+                    <div class="section-icon">4</div>
+                    Valuation
+                </div>
+                <div class="section-toggle">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="section-content">
+                <div class="valuation-grid">
+                    <div class="valuation-card">
+                        <div class="valuation-metric">P/E Ratio</div>
+                        <div class="valuation-value">{pe_ratio:.1f}x</div>
+                    </div>
+                    <div class="valuation-card">
+                        <div class="valuation-metric">P/B Ratio</div>
+                        <div class="valuation-value">{pb_ratio:.1f}x</div>
+                    </div>
+                    <div class="valuation-card">
+                        <div class="valuation-metric">EV/EBITDA</div>
+                        <div class="valuation-value">{valuation.get("ev_to_ebitda", 0) or 0:.1f}x</div>
+                    </div>
+                    <div class="valuation-card">
+                        <div class="valuation-metric">PEG Ratio</div>
+                        <div class="valuation-value">{valuation.get("peg_ratio", 0) or 0:.2f}</div>
+                    </div>
+                </div>
+
+                <div style="background: var(--bg-light); padding: 1.5rem; border-radius: 8px; margin-top: 1.5rem;">
+                    <h4 style="color: var(--primary); margin-bottom: 0.75rem;">Valuation Summary</h4>
+                    <p style="color: var(--text-secondary); line-height: 1.8;">
+                        {analysis.get("valuation_analysis", "")}
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Disclaimer -->
+        <section class="section" id="disclaimer">
+            <div class="section-header" onclick="toggleSection(this)">
+                <div class="section-title">
+                    <div class="section-icon">!</div>
+                    Disclaimer
+                </div>
+                <div class="section-toggle">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="section-content">
+                <div class="disclaimer">
+                    <h4>Important Disclosures</h4>
+                    <p>
+                        This report is for informational and educational purposes only and should not be construed as investment advice,
+                        a recommendation, or an offer to buy or sell any securities. The information contained herein is based on sources
+                        believed to be reliable, but its accuracy or completeness is not guaranteed.
+                    </p>
+                    <p style="margin-top: 1rem;">
+                        Past performance is not indicative of future results. Investments in securities are subject to market risks.
+                        Please read all related documents carefully before investing. The author(s) of this report may or may not hold
+                        positions in the securities mentioned. Investors should conduct their own due diligence and/or consult a
+                        qualified financial advisor before making investment decisions.
+                    </p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer style="background: var(--primary); color: white; padding: 2rem; text-align: center; margin-top: 2rem;">
+        <p style="opacity: 0.8; font-size: 0.9rem;">
+            Generated by Equity Research Generator | {report_date} | For Educational Purposes Only
+        </p>
+    </footer>
+
+    <script>
+        function toggleSection(header) {{
+            const section = header.parentElement;
+            section.classList.toggle('collapsed');
+        }}
+
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {{
+            anchor.addEventListener('click', function(e) {{
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {{
+                    target.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                }}
+            }});
+        }});
+    </script>
+</body>
+</html>'''
+
+    return html

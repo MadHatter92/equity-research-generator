@@ -1,0 +1,30 @@
+# Render Blueprint - defines all services
+services:
+  # Backend API
+  - type: web
+    name: equity-research-api
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false  # You'll set this manually in Render dashboard
+      - key: SECRET_KEY
+        generateValue: true  # Render generates a secure random value
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1  # 1GB persistent storage for SQLite
+
+  # Frontend Static Site
+  - type: web
+    name: equity-research-app
+    runtime: static
+    buildCommand: echo "No build needed"
+    staticPublishPath: ./frontend
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
