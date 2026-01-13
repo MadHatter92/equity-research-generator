@@ -20,54 +20,68 @@ def generate_ai_analysis(stock_data: Dict[str, Any]) -> Dict[str, Any]:
     # Prepare data summary for Claude
     data_summary = prepare_data_summary(stock_data)
 
-    prompt = f"""You are an expert equity research analyst. Based on the following stock data, generate a comprehensive investment analysis.
+    prompt = f"""You are a HIGHLY OPINIONATED senior equity research analyst at a top investment bank. You have strong convictions and are not afraid to make bold calls. Your reputation is built on taking clear, decisive stances - not wishy-washy "hold" recommendations.
 
 STOCK DATA:
 {json.dumps(data_summary, indent=2)}
 
-Please provide your analysis in the following JSON format:
+YOUR TASK: Generate a STRONG, OPINIONATED investment thesis. Take a clear stance - either you love this stock or you don't. Avoid fence-sitting.
+
+CRITICAL INSTRUCTIONS:
+1. BE DECISIVE: If the fundamentals are good, give a strong BUY with conviction. If they're bad, give a clear SELL. Only use HOLD if truly mixed.
+2. USE THE NEWS: Reference the recent news headlines to support your thesis. What are the catalysts or red flags?
+3. ANALYZE QUARTERLY TRENDS: Look at the last 4 quarters. Is revenue/profit growing or declining? This is CRUCIAL.
+4. BE SPECIFIC: Use actual numbers from the data. Don't be vague.
+5. HAVE CONVICTION: Write like you're putting your own money on this call.
+
+Return your analysis in this JSON format:
 {{
-    "recommendation": "BUY" or "HOLD" or "SELL",
+    "recommendation": "STRONG BUY" or "BUY" or "HOLD" or "SELL" or "STRONG SELL",
+    "conviction_level": "HIGH" or "MEDIUM" or "LOW",
     "target_price": <number - your 12-month target price>,
-    "investment_thesis": "<2-3 sentence summary of why to invest or not>",
+    "investment_thesis": "<3-4 sentence STRONG thesis. Start with your conviction: 'We are bullish/bearish on X because...' Be specific about catalysts.>",
+    "quarterly_analysis": "<Analysis of last quarter results. Was it a beat or miss? What's the trend?>",
+    "news_impact": "<How recent news affects your view. Reference specific headlines.>",
     "bull_case": [
-        "<point 1>",
-        "<point 2>",
-        "<point 3>",
-        "<point 4>"
+        "<specific point with numbers>",
+        "<specific point with numbers>",
+        "<specific point with numbers>",
+        "<specific point with numbers>"
     ],
     "bear_case": [
-        "<point 1>",
-        "<point 2>",
-        "<point 3>"
+        "<specific concern with context>",
+        "<specific concern with context>",
+        "<specific concern with context>"
     ],
     "key_risks": [
         {{
             "title": "<risk title>",
-            "description": "<detailed risk description>"
+            "description": "<detailed risk with potential impact>",
+            "probability": "HIGH" or "MEDIUM" or "LOW"
         }},
         {{
             "title": "<risk title>",
-            "description": "<detailed risk description>"
+            "description": "<detailed risk with potential impact>",
+            "probability": "HIGH" or "MEDIUM" or "LOW"
         }}
     ],
-    "business_analysis": "<paragraph analyzing the business model, competitive position, and growth drivers>",
-    "financial_analysis": "<paragraph analyzing financial health, profitability trends, and key metrics>",
-    "valuation_analysis": "<paragraph on valuation - is it expensive, cheap, fair value? Compare to historical and peers>",
+    "business_analysis": "<paragraph with STRONG opinions on business model, moat, and competitive position>",
+    "financial_analysis": "<paragraph analyzing margins, growth trajectory, and what the numbers REALLY tell us>",
+    "valuation_analysis": "<paragraph on whether this is CHEAP or EXPENSIVE. Use PE, PB, compare to growth rate. Be definitive.>",
     "competitive_advantages": [
         {{
-            "title": "<moat/advantage name>",
-            "description": "<explanation>"
+            "title": "<moat name>",
+            "description": "<why this matters>"
         }}
-    ]
+    ],
+    "catalysts": [
+        "<upcoming event or trigger that could move the stock>"
+    ],
+    "price_action_note": "<brief comment on where the stock is trading relative to 52-week range>"
 }}
 
-Important guidelines:
-1. Be objective and balanced - acknowledge both positives and negatives
-2. Base your analysis on the actual data provided
-3. Target price should be realistic based on current price and fundamentals
-4. Consider Indian market context
-5. Return ONLY valid JSON, no other text"""
+Remember: Great analysts have OPINIONS. Don't hedge everything. Take a stand!
+Return ONLY valid JSON, no other text."""
 
     try:
         response = client.messages.create(
@@ -107,15 +121,36 @@ def prepare_data_summary(stock_data: Dict[str, Any]) -> Dict[str, Any]:
     per_share = stock_data.get("per_share", {})
     dividends = stock_data.get("dividends", {})
     analyst = stock_data.get("analyst_data", {})
+    quarterly = stock_data.get("quarterly_results", [])
+    news = stock_data.get("recent_news", [])
+
+    # Format news for the AI
+    news_summary = []
+    for article in news[:7]:  # Top 7 news items
+        if article.get("title"):
+            news_summary.append({
+                "headline": article.get("title"),
+                "source": article.get("publisher", "Unknown"),
+            })
+
+    # Calculate price position in 52-week range
+    current = price.get("current_price", 0)
+    low_52 = price.get("fifty_two_week_low", 0)
+    high_52 = price.get("fifty_two_week_high", 0)
+    if high_52 and low_52 and high_52 != low_52:
+        position_in_range = ((current - low_52) / (high_52 - low_52)) * 100
+    else:
+        position_in_range = 50
 
     return {
         "company_name": basic.get("company_name"),
         "sector": basic.get("sector"),
         "industry": basic.get("industry"),
-        "description": basic.get("description", "")[:500],  # Truncate long descriptions
+        "description": basic.get("description", "")[:500],
         "current_price": price.get("current_price"),
         "52_week_high": price.get("fifty_two_week_high"),
         "52_week_low": price.get("fifty_two_week_low"),
+        "position_in_52week_range_pct": round(position_in_range, 1),
         "market_cap_inr": valuation.get("market_cap"),
         "pe_ratio": valuation.get("pe_ratio"),
         "pb_ratio": valuation.get("pb_ratio"),
@@ -135,6 +170,8 @@ def prepare_data_summary(stock_data: Dict[str, Any]) -> Dict[str, Any]:
         "dividend_yield": dividends.get("dividend_yield"),
         "analyst_target_price": analyst.get("target_mean_price"),
         "analyst_recommendation": analyst.get("recommendation"),
+        "quarterly_results": quarterly[:4] if quarterly else [],
+        "recent_news": news_summary,
     }
 
 
@@ -168,8 +205,17 @@ def generate_fallback_analysis(stock_data: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "recommendation": recommendation,
+        "conviction_level": "MEDIUM",
         "target_price": round(target_price, 2),
         "investment_thesis": f"{basic.get('company_name', 'This company')} operates in the {basic.get('sector', 'N/A')} sector. Based on current valuations and financial metrics, the stock appears to be fairly valued.",
+        "quarterly_analysis": "Quarterly financial data analysis is not available. Please refer to the company's investor relations for the latest quarterly results.",
+        "news_impact": "Recent news and its impact on the stock could not be analyzed at this time.",
+        "catalysts": [
+            "Upcoming quarterly earnings announcement",
+            "Sector-wide policy changes",
+            "Management commentary on guidance"
+        ],
+        "price_action_note": f"The stock is currently trading within its 52-week range.",
         "bull_case": [
             f"Established player in {basic.get('sector', 'its')} sector",
             "Consistent financial performance",
@@ -184,11 +230,13 @@ def generate_fallback_analysis(stock_data: Dict[str, Any]) -> Dict[str, Any]:
         "key_risks": [
             {
                 "title": "Market Risk",
-                "description": "General market volatility and economic conditions could impact stock performance."
+                "description": "General market volatility and economic conditions could impact stock performance.",
+                "probability": "MEDIUM"
             },
             {
                 "title": "Industry Risk",
-                "description": f"Changes in the {basic.get('sector', 'industry')} sector could affect the company's competitive position."
+                "description": f"Changes in the {basic.get('sector', 'industry')} sector could affect the company's competitive position.",
+                "probability": "MEDIUM"
             }
         ],
         "business_analysis": f"{basic.get('company_name', 'The company')} operates in the {basic.get('industry', basic.get('sector', 'N/A'))} space. The business model appears stable with ongoing operations across its core segments.",
@@ -259,7 +307,19 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
         '''
 
     # Recommendation color class
-    rec_class = recommendation.lower()
+    rec_class = recommendation.lower().replace(" ", "-")  # Handle "strong buy" etc.
+
+    # Get new opinionated fields
+    conviction_level = analysis.get("conviction_level", "MEDIUM")
+    quarterly_analysis = analysis.get("quarterly_analysis", "")
+    news_impact = analysis.get("news_impact", "")
+    catalysts = analysis.get("catalysts", [])
+    price_action_note = analysis.get("price_action_note", "")
+
+    # Generate catalysts HTML
+    catalysts_html = ""
+    for catalyst in catalysts:
+        catalysts_html += f'<li>{catalyst}</li>'
 
     report_date = datetime.now().strftime("%B %d, %Y")
 
@@ -404,9 +464,49 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
             margin-bottom: 0.5rem;
         }}
 
-        .recommendation.buy {{ color: #68d391; }}
+        .recommendation.buy, .recommendation.strong-buy {{ color: #68d391; }}
         .recommendation.hold {{ color: #f6e05e; }}
-        .recommendation.sell {{ color: #fc8181; }}
+        .recommendation.sell, .recommendation.strong-sell {{ color: #fc8181; }}
+
+        .conviction-badge {{
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 0.5rem;
+        }}
+
+        .conviction-badge.high {{
+            background: rgba(72, 187, 120, 0.2);
+            color: #68d391;
+        }}
+
+        .conviction-badge.medium {{
+            background: rgba(246, 224, 94, 0.2);
+            color: #f6e05e;
+        }}
+
+        .conviction-badge.low {{
+            background: rgba(252, 129, 129, 0.2);
+            color: #fc8181;
+        }}
+
+        .catalyst-list li {{
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+            color: var(--text-primary);
+        }}
+
+        .catalyst-list li::before {{
+            content: '⚡';
+            position: absolute;
+            left: 0;
+            top: 0.5rem;
+        }}
 
         .price-info {{
             font-size: 0.9rem;
@@ -691,7 +791,9 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
             </div>
             <div class="nav-links">
                 <a href="#summary" class="nav-link active">Summary</a>
-                <a href="#company" class="nav-link">Company</a>
+                <a href="#quarterly" class="nav-link">Quarterly</a>
+                <a href="#news-catalysts" class="nav-link">News</a>
+                <a href="#financials" class="nav-link">Financials</a>
                 <a href="#valuation" class="nav-link">Valuation</a>
             </div>
         </div>
@@ -712,6 +814,7 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
                 </div>
                 <div class="recommendation-box">
                     <div class="recommendation {rec_class}">{recommendation}</div>
+                    <div class="conviction-badge {conviction_level.lower()}">{conviction_level} Conviction</div>
                     <div class="price-info">
                         <div>CMP: <span class="price-current">₹{current_price:,.2f}</span></div>
                         <div>Target: ₹{target_price:,.0f} | Upside: {upside:.1f}%</div>
@@ -783,6 +886,57 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
                 <div class="risks-container">
                     <h4 style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px;">Key Risks to Monitor</h4>
                     {risk_items}
+                </div>
+            </div>
+        </section>
+
+        <!-- Quarterly Results Analysis -->
+        <section class="section" id="quarterly">
+            <div class="section-header" onclick="toggleSection(this)">
+                <div class="section-title">
+                    <div class="section-icon" style="background: var(--secondary);">Q</div>
+                    Quarterly Results Analysis
+                </div>
+                <div class="section-toggle">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="section-content">
+                <div style="background: linear-gradient(to right, #f0fff4, transparent); padding: 1.25rem; border-radius: 8px; border-left: 4px solid var(--secondary); margin-bottom: 1rem;">
+                    <p style="color: var(--text-primary); line-height: 1.8;">{quarterly_analysis if quarterly_analysis else "Quarterly data analysis not available for this stock."}</p>
+                </div>
+                <div style="background: var(--bg-light); padding: 1rem; border-radius: 8px;">
+                    <p style="font-size: 0.9rem; color: var(--text-secondary);"><strong>Price Action:</strong> {price_action_note if price_action_note else "N/A"}</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- News & Catalysts -->
+        <section class="section" id="news-catalysts">
+            <div class="section-header" onclick="toggleSection(this)">
+                <div class="section-title">
+                    <div class="section-icon" style="background: var(--warning);">!</div>
+                    News Impact & Catalysts
+                </div>
+                <div class="section-toggle">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="section-content">
+                <div style="margin-bottom: 1.5rem;">
+                    <h4 style="color: var(--primary); margin-bottom: 0.75rem;">How Recent News Affects Our View</h4>
+                    <p style="color: var(--text-secondary); line-height: 1.8;">{news_impact if news_impact else "No significant recent news to analyze."}</p>
+                </div>
+
+                <div style="background: linear-gradient(to right, #fffaf0, transparent); padding: 1.25rem; border-radius: 8px; border-left: 4px solid var(--warning);">
+                    <h4 style="color: var(--warning); margin-bottom: 0.75rem;">Upcoming Catalysts</h4>
+                    <ul class="catalyst-list" style="list-style: none; padding: 0;">
+                        {catalysts_html if catalysts_html else "<li style='color: var(--text-secondary); padding-left: 0;'>No specific near-term catalysts identified.</li>"}
+                    </ul>
                 </div>
             </div>
         </section>

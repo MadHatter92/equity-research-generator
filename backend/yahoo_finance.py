@@ -49,6 +49,13 @@ def fetch_stock_data(symbol: str, exchange: str = "NSE") -> Optional[Dict[str, A
         balance_sheet = ticker.balance_sheet
         cashflow = ticker.cashflow
         quarterly_financials = ticker.quarterly_financials
+        quarterly_balance_sheet = ticker.quarterly_balance_sheet
+
+        # Get latest news
+        try:
+            news = ticker.news[:10] if ticker.news else []
+        except:
+            news = []
 
         # Extract key data
         stock_data = {
@@ -145,6 +152,24 @@ def fetch_stock_data(symbol: str, exchange: str = "NSE") -> Optional[Dict[str, A
         if cashflow is not None and not cashflow.empty:
             stock_data["historical_cashflow"] = process_financials(cashflow)
 
+        # Process quarterly financials (last 4 quarters)
+        if quarterly_financials is not None and not quarterly_financials.empty:
+            stock_data["quarterly_results"] = process_quarterly_financials(quarterly_financials)
+
+        # Add news
+        stock_data["recent_news"] = []
+        for article in news:
+            try:
+                stock_data["recent_news"].append({
+                    "title": article.get("title", ""),
+                    "publisher": article.get("publisher", ""),
+                    "link": article.get("link", ""),
+                    "published": article.get("providerPublishTime", 0),
+                    "type": article.get("type", ""),
+                })
+            except:
+                pass
+
         # Get historical prices for charts
         if not hist.empty:
             stock_data["price_history"] = {
@@ -171,6 +196,23 @@ def process_financials(df) -> Dict[str, Dict[str, float]]:
             if value is not None and not (isinstance(value, float) and value != value):  # Check for NaN
                 result[year][str(idx)] = float(value)
     return result
+
+
+def process_quarterly_financials(df) -> list:
+    """Process quarterly financials into a list of quarter results."""
+    quarters = []
+    for col in df.columns[:4]:  # Last 4 quarters
+        quarter_data = {
+            "period": col.strftime("%b %Y") if hasattr(col, "strftime") else str(col),
+        }
+        for idx in df.index:
+            value = df.loc[idx, col]
+            if value is not None and not (isinstance(value, float) and value != value):
+                # Clean up the key name
+                key = str(idx).replace(" ", "_").lower()
+                quarter_data[key] = float(value)
+        quarters.append(quarter_data)
+    return quarters
 
 
 def search_stocks(query: str, limit: int = 10) -> list:
