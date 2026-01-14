@@ -20,19 +20,19 @@
     <nav class="gradient-header text-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
-                <div class="flex items-center space-x-4">
-                    <a href="index.html" class="flex items-center space-x-2 text-blue-200 hover:text-white transition-all">
+                <div class="flex items-center space-x-2 sm:space-x-4 min-w-0">
+                    <a href="index.html" class="flex items-center space-x-1 sm:space-x-2 text-blue-200 hover:text-white transition-all flex-shrink-0">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
                         </svg>
-                        <span>Home</span>
+                        <span class="hidden sm:inline">Home</span>
                     </a>
-                    <span class="text-blue-300">|</span>
-                    <h1 class="text-xl font-bold">Generate Report</h1>
+                    <span class="text-blue-300 hidden sm:inline">|</span>
+                    <h1 class="text-base sm:text-xl font-bold truncate">Generate Report</h1>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <span class="text-sm text-blue-200">
-                        <span id="reportsRemaining">-</span> reports remaining
+                <div class="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
+                    <span class="text-xs sm:text-sm text-blue-200 whitespace-nowrap">
+                        <span id="reportsRemaining">-</span> <span class="hidden xs:inline">reports</span> left
                     </span>
                     <div id="authSection">
                         <!-- Will be populated by JS -->
@@ -100,28 +100,28 @@
                 </button>
             </div>
 
-            <div class="flex items-center space-x-4 mb-6">
-                <div class="w-16 h-16 bg-blue-100 rounded-xl flex items-center justify-center">
-                    <span id="previewTicker" class="text-xl font-bold text-blue-600">TCS</span>
+            <div class="flex items-center space-x-3 sm:space-x-4 mb-6">
+                <div class="w-12 h-12 sm:w-16 sm:h-16 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <span id="previewTicker" class="text-base sm:text-xl font-bold text-blue-600">TCS</span>
                 </div>
-                <div>
-                    <h3 id="previewName" class="text-xl font-semibold text-gray-900">Company Name</h3>
-                    <p id="previewSector" class="text-gray-500">Sector</p>
+                <div class="min-w-0">
+                    <h3 id="previewName" class="text-base sm:text-xl font-semibold text-gray-900 truncate">Company Name</h3>
+                    <p id="previewSector" class="text-sm sm:text-base text-gray-500 truncate">Sector</p>
                 </div>
             </div>
 
-            <div class="grid grid-cols-3 gap-4 mb-6">
-                <div class="bg-gray-50 rounded-lg p-4 text-center">
-                    <p class="text-sm text-gray-500">Current Price</p>
-                    <p id="previewPrice" class="text-xl font-semibold text-gray-900">₹0</p>
+            <div class="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
+                <div class="bg-gray-50 rounded-lg p-3 sm:p-4 text-center">
+                    <p class="text-xs sm:text-sm text-gray-500">Current Price</p>
+                    <p id="previewPrice" class="text-base sm:text-xl font-semibold text-gray-900">₹0</p>
                 </div>
-                <div class="bg-gray-50 rounded-lg p-4 text-center">
-                    <p class="text-sm text-gray-500">Market Cap</p>
-                    <p id="previewMarketCap" class="text-xl font-semibold text-gray-900">₹0</p>
+                <div class="bg-gray-50 rounded-lg p-3 sm:p-4 text-center">
+                    <p class="text-xs sm:text-sm text-gray-500">Market Cap</p>
+                    <p id="previewMarketCap" class="text-base sm:text-xl font-semibold text-gray-900">₹0</p>
                 </div>
-                <div class="bg-gray-50 rounded-lg p-4 text-center">
-                    <p class="text-sm text-gray-500">P/E Ratio</p>
-                    <p id="previewPE" class="text-xl font-semibold text-gray-900">0x</p>
+                <div class="bg-gray-50 rounded-lg p-3 sm:p-4 text-center">
+                    <p class="text-xs sm:text-sm text-gray-500">P/E Ratio</p>
+                    <p id="previewPE" class="text-base sm:text-xl font-semibold text-gray-900">0x</p>
                 </div>
             </div>
 

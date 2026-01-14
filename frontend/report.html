@@ -14,6 +14,10 @@
             height: calc(100vh - 64px);
             border: none;
         }
+        @media print {
+            nav { display: none !important; }
+            #reportContainer { padding-top: 0 !important; }
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -21,34 +25,34 @@
     <nav class="gradient-header text-white shadow-lg fixed top-0 left-0 right-0 z-50">
         <div class="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
-                <div class="flex items-center space-x-4">
-                    <a id="backLink" href="index.html" class="flex items-center space-x-2 text-blue-200 hover:text-white transition-all">
+                <div class="flex items-center space-x-2 sm:space-x-4 min-w-0 flex-1">
+                    <a id="backLink" href="index.html" class="flex items-center space-x-1 sm:space-x-2 text-blue-200 hover:text-white transition-all flex-shrink-0">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
                         </svg>
-                        <span id="backText">Home</span>
+                        <span id="backText" class="hidden sm:inline">Home</span>
                     </a>
-                    <span class="text-blue-300">|</span>
-                    <h1 id="reportTitle" class="text-xl font-bold">Loading Report...</h1>
+                    <span class="text-blue-300 hidden sm:inline">|</span>
+                    <h1 id="reportTitle" class="text-base sm:text-xl font-bold truncate">Loading Report...</h1>
                 </div>
-                <div class="flex items-center space-x-3">
-                    <button onclick="printReport()" class="flex items-center space-x-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-all">
+                <div class="flex items-center space-x-2 sm:space-x-3">
+                    <button onclick="printReport()" class="flex items-center space-x-2 bg-white/10 hover:bg-white/20 px-3 sm:px-4 py-2 rounded-lg transition-all" title="Print">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
                         </svg>
-                        <span>Print</span>
+                        <span class="hidden sm:inline">Print</span>
                     </button>
-                    <button onclick="downloadReport()" class="flex items-center space-x-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-all">
+                    <button onclick="downloadReport()" class="flex items-center space-x-2 bg-white/10 hover:bg-white/20 px-3 sm:px-4 py-2 rounded-lg transition-all" title="Download">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                         </svg>
-                        <span>Download</span>
+                        <span class="hidden sm:inline">Download</span>
                     </button>
-                    <a href="generate.html" class="flex items-center space-x-2 bg-blue-500 hover:bg-blue-400 px-4 py-2 rounded-lg transition-all">
+                    <a href="generate.html" class="flex items-center space-x-2 bg-blue-500 hover:bg-blue-400 px-3 sm:px-4 py-2 rounded-lg transition-all" title="New Report">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
                         </svg>
-                        <span>New Report</span>
+                        <span class="hidden sm:inline">New Report</span>
                     </a>
                 </div>
             </div>
@@ -86,6 +90,7 @@
     <script>
         // API_BASE is now loaded from config.js
         let currentReport = null;
+        let reportHtmlContent = null; // Store HTML for printing
         const token = localStorage.getItem('token');
         const isLoggedIn = !!token;
 
@@ -140,6 +145,7 @@
                 }
 
                 const html = await htmlResponse.text();
+                reportHtmlContent = html; // Store for printing
 
                 // Load into iframe
                 const iframe = document.getElementById('reportFrame');
@@ -162,16 +168,39 @@
         }
 
         function printReport() {
-            const iframe = document.getElementById('reportFrame');
-            iframe.contentWindow.print();
+            if (!reportHtmlContent) {
+                alert('Report not loaded yet. Please wait.');
+                return;
+            }
+
+            // Open a new window with the report content for printing
+            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            if (!printWindow) {
+                alert('Please allow pop-ups to print the report.');
+                return;
+            }
+
+            printWindow.document.write(reportHtmlContent);
+            printWindow.document.close();
+
+            // Wait for content to load, then print
+            printWindow.onload = function() {
+                printWindow.print();
+            };
+
+            // Fallback for browsers where onload doesn't fire reliably
+            setTimeout(() => {
+                printWindow.print();
+            }, 500);
         }
 
         function downloadReport() {
-            if (!currentReport) return;
+            if (!currentReport || !reportHtmlContent) {
+                alert('Report not loaded yet. Please wait.');
+                return;
+            }
 
-            const iframe = document.getElementById('reportFrame');
-            const html = iframe.contentDocument.documentElement.outerHTML;
-            const blob = new Blob([html], { type: 'text/html' });
+            const blob = new Blob([reportHtmlContent], { type: 'text/html' });
             const url = URL.createObjectURL(blob);
 
             const a = document.createElement('a');

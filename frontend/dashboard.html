@@ -16,15 +16,15 @@
     <nav class="gradient-header text-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
-                <div class="flex items-center space-x-4">
-                    <h1 class="text-xl font-bold">Equity Research Generator</h1>
+                <div class="flex items-center min-w-0">
+                    <h1 class="text-base sm:text-xl font-bold truncate">Equity Research Generator</h1>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-3">
-                        <img id="userAvatar" src="" alt="" class="hidden w-8 h-8 rounded-full border-2 border-white/30">
-                        <span id="userName" class="text-sm text-blue-200"></span>
+                <div class="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
+                    <div class="flex items-center space-x-2 sm:space-x-3">
+                        <img id="userAvatar" src="" alt="" class="hidden w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-white/30">
+                        <span id="userName" class="hidden sm:inline text-sm text-blue-200 max-w-32 truncate"></span>
                     </div>
-                    <button onclick="logout()" class="text-sm bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-all">
+                    <button onclick="logout()" class="text-sm bg-white/10 hover:bg-white/20 px-3 sm:px-4 py-2 rounded-lg transition-all">
                         Logout
                     </button>
                 </div>
