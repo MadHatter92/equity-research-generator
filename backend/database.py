@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Optional, List
 from pydantic import BaseModel
 
+from config import MONTHLY_REPORT_LIMIT, ANONYMOUS_REPORT_LIMIT
+
 # Ensure data directory exists
 # On Render: use /opt/render/project/src/data if it exists, otherwise use local data folder
 if os.path.exists("/opt/render/project/src"):
@@ -67,17 +69,34 @@ def init_database():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Users table
+    # Users table (with OAuth support)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
+            password_hash TEXT,
             full_name TEXT NOT NULL,
+            google_id TEXT UNIQUE,
+            auth_provider TEXT DEFAULT 'local',
+            avatar_url TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_active BOOLEAN DEFAULT 1
         )
     """)
+
+    # Migration: Add new columns if they don't exist (for existing databases)
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN google_id TEXT UNIQUE")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'local'")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     # Reports table
     cursor.execute("""
@@ -107,6 +126,17 @@ def init_database():
             reports_generated INTEGER DEFAULT 0,
             FOREIGN KEY (user_id) REFERENCES users (id),
             UNIQUE(user_id, month_year)
+        )
+    """)
+
+    # Anonymous usage tracking table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS anonymous_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            identifier TEXT UNIQUE NOT NULL,
+            reports_generated INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -151,6 +181,63 @@ def get_user_by_id(user_id: int) -> Optional[dict]:
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def get_user_by_google_id(google_id: str) -> Optional[dict]:
+    """Get user by Google ID."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE google_id = ?", (google_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_or_create_google_user(google_id: str, email: str, full_name: str, avatar_url: str = None) -> dict:
+    """Get existing Google user or create a new one."""
+    # First, try to find by google_id
+    user = get_user_by_google_id(google_id)
+    if user:
+        return user
+
+    # Check if email exists (user might have registered with email/password before)
+    user = get_user_by_email(email)
+    if user:
+        # Link Google account to existing user
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET google_id = ?, auth_provider = 'google', avatar_url = ? WHERE id = ?",
+            (google_id, avatar_url, user["id"])
+        )
+        conn.commit()
+        conn.close()
+        user["google_id"] = google_id
+        user["auth_provider"] = "google"
+        user["avatar_url"] = avatar_url
+        return user
+
+    # Create new Google user
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """INSERT INTO users (email, password_hash, full_name, google_id, auth_provider, avatar_url)
+           VALUES (?, NULL, ?, ?, 'google', ?)""",
+        (email, full_name, google_id, avatar_url)
+    )
+    conn.commit()
+    user_id = cursor.lastrowid
+    conn.close()
+
+    return {
+        "id": user_id,
+        "email": email,
+        "full_name": full_name,
+        "google_id": google_id,
+        "auth_provider": "google",
+        "avatar_url": avatar_url,
+        "is_active": True
+    }
 
 
 # Report Operations
@@ -280,6 +367,51 @@ def can_generate_report(user_id: int) -> bool:
     """Check if user can generate more reports this month."""
     usage = get_usage(user_id)
     return usage["reports_remaining"] > 0
+
+
+# Anonymous Usage Operations
+def get_anonymous_usage(identifier: str) -> dict:
+    """Get anonymous user's usage stats."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT reports_generated FROM anonymous_usage WHERE identifier = ?",
+        (identifier,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    reports_used = row["reports_generated"] if row else 0
+
+    return {
+        "reports_used": reports_used,
+        "reports_limit": ANONYMOUS_REPORT_LIMIT,
+        "reports_remaining": max(0, ANONYMOUS_REPORT_LIMIT - reports_used)
+    }
+
+
+def can_anonymous_generate(identifier: str) -> bool:
+    """Check if anonymous user can generate more reports."""
+    usage = get_anonymous_usage(identifier)
+    return usage["reports_remaining"] > 0
+
+
+def increment_anonymous_usage(identifier: str) -> bool:
+    """Increment anonymous usage count. Returns False if limit reached."""
+    if not can_anonymous_generate(identifier):
+        return False
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO anonymous_usage (identifier, reports_generated, last_used_at)
+        VALUES (?, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT(identifier)
+        DO UPDATE SET reports_generated = reports_generated + 1, last_used_at = CURRENT_TIMESTAMP
+    """, (identifier,))
+    conn.commit()
+    conn.close()
+    return True
 
 
 # Initialize database on module import

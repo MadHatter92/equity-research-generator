@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
@@ -13,6 +13,12 @@ pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # Bearer token security
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
+
+
+def _prepare_password(password: str) -> str:
+    """Prepare password for hashing (handle any preprocessing)."""
+    return password
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -77,6 +83,36 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     return user
 
 
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)
+) -> Optional[dict]:
+    """
+    Dependency to get current user if authenticated, None otherwise.
+    Use this for routes that work for both authenticated and anonymous users.
+    """
+    if credentials is None:
+        return None
+
+    token = credentials.credentials
+    payload = decode_token(token)
+
+    if payload is None:
+        return None
+
+    user_id = payload.get("sub")
+    if user_id is None:
+        return None
+
+    user = db.get_user_by_id(int(user_id))
+    if user is None:
+        return None
+
+    if not user.get("is_active", True):
+        return None
+
+    return user
+
+
 def register_user(email: str, password: str, full_name: str) -> tuple[bool, str, Optional[dict]]:
     """
     Register a new user.
@@ -118,6 +154,10 @@ def authenticate_user(email: str, password: str) -> tuple[bool, str, Optional[st
 
     if not user:
         return False, "Invalid email or password", None
+
+    # Check if user is Google-only (no password)
+    if user.get("password_hash") is None:
+        return False, "Please sign in with Google", None
 
     if not verify_password(password, user["password_hash"]):
         return False, "Invalid email or password", None

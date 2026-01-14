@@ -20,7 +20,10 @@
                     <h1 class="text-xl font-bold">Equity Research Generator</h1>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <span id="userName" class="text-sm text-blue-200"></span>
+                    <div class="flex items-center space-x-3">
+                        <img id="userAvatar" src="" alt="" class="hidden w-8 h-8 rounded-full border-2 border-white/30">
+                        <span id="userName" class="text-sm text-blue-200"></span>
+                    </div>
                     <button onclick="logout()" class="text-sm bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-all">
                         Logout
                     </button>
@@ -109,6 +112,32 @@
         // API_BASE is now loaded from config.js
         let token = localStorage.getItem('token');
 
+        // Check for OAuth callback token in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const callbackToken = urlParams.get('token');
+
+        if (callbackToken) {
+            // Store token from OAuth callback
+            token = callbackToken;
+            localStorage.setItem('token', callbackToken);
+
+            // Fetch user info and store it
+            fetch(`${API_BASE}/auth/me`, {
+                headers: { 'Authorization': `Bearer ${callbackToken}` }
+            })
+            .then(res => res.json())
+            .then(user => {
+                localStorage.setItem('user', JSON.stringify(user));
+                // Remove token from URL and reload
+                window.history.replaceState({}, document.title, 'dashboard.html');
+                location.reload();
+            })
+            .catch(() => {
+                // Clear URL param anyway
+                window.history.replaceState({}, document.title, 'dashboard.html');
+            });
+        }
+
         // Check authentication
         document.addEventListener('DOMContentLoaded', () => {
             if (!token) {
@@ -118,6 +147,13 @@
 
             const user = JSON.parse(localStorage.getItem('user') || '{}');
             document.getElementById('userName').textContent = user.full_name || user.email || '';
+
+            // Show avatar if available
+            if (user.avatar_url) {
+                const avatarEl = document.getElementById('userAvatar');
+                avatarEl.src = user.avatar_url;
+                avatarEl.classList.remove('hidden');
+            }
 
             loadUsage();
             loadReports();
@@ -240,8 +276,11 @@
 
         function getRecommendationColor(rec) {
             switch (rec?.toUpperCase()) {
+                case 'STRONG BUY':
                 case 'BUY': return 'bg-green-500';
+                case 'STRONG SELL':
                 case 'SELL': return 'bg-red-500';
+                case 'HOLD':
                 default: return 'bg-yellow-500';
             }
         }

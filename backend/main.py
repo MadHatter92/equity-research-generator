@@ -1,16 +1,24 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 import json
+import hashlib
 from pathlib import Path
+
+from authlib.integrations.starlette_client import OAuth
+from starlette.middleware.sessions import SessionMiddleware
 
 import database as db
 import auth
 from yahoo_finance import fetch_stock_data, search_stocks
 from report_generator import generate_ai_analysis, generate_report_html
+from config import (
+    SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI, FRONTEND_URL
+)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -28,6 +36,10 @@ ALLOWED_ORIGINS = [
     "https://equity-research-app.onrender.com",
 ]
 
+# Add FRONTEND_URL to allowed origins if it's not already there
+if FRONTEND_URL and FRONTEND_URL not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append(FRONTEND_URL)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -35,6 +47,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Session middleware for OAuth state management
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
+# Configure OAuth
+oauth = OAuth()
+if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+    oauth.register(
+        name='google',
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+        client_kwargs={'scope': 'openid email profile'}
+    )
 
 # Mount static files for frontend
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -132,8 +158,79 @@ async def get_current_user_info(current_user: dict = Depends(auth.get_current_us
         "id": current_user["id"],
         "email": current_user["email"],
         "full_name": current_user["full_name"],
+        "avatar_url": current_user.get("avatar_url"),
+        "auth_provider": current_user.get("auth_provider", "local"),
         "created_at": current_user["created_at"]
     }
+
+
+# Google OAuth Routes
+@app.get("/api/auth/google/login")
+async def google_login(request: Request):
+    """Initiate Google OAuth flow."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth is not configured"
+        )
+    return await oauth.google.authorize_redirect(request, GOOGLE_REDIRECT_URI)
+
+
+@app.get("/api/auth/google/callback")
+async def google_callback(request: Request):
+    """Handle Google OAuth callback."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth is not configured"
+        )
+
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        user_info = token.get('userinfo')
+
+        if not user_info:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to get user info from Google"
+            )
+
+        # Get or create user in database
+        user = db.get_or_create_google_user(
+            google_id=user_info['sub'],
+            email=user_info['email'],
+            full_name=user_info.get('name', user_info.get('email', '')),
+            avatar_url=user_info.get('picture')
+        )
+
+        # Create JWT token
+        access_token = auth.create_access_token(
+            data={"sub": str(user["id"]), "email": user["email"]}
+        )
+
+        # Redirect to frontend with token
+        # The frontend will extract the token and store it
+        redirect_url = f"{FRONTEND_URL}/dashboard.html?token={access_token}"
+        return RedirectResponse(url=redirect_url)
+
+    except Exception as e:
+        # Redirect to frontend with error
+        redirect_url = f"{FRONTEND_URL}/index.html?error=auth_failed"
+        return RedirectResponse(url=redirect_url)
+
+
+# Helper function for anonymous user identification
+def get_client_identifier(request: Request) -> str:
+    """Get a hashed identifier for anonymous users based on IP."""
+    # Try to get real IP from forwarded headers
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "unknown"
+
+    # Hash the IP for privacy
+    return hashlib.sha256(client_ip.encode()).hexdigest()[:32]
 
 
 # Usage Routes
@@ -141,6 +238,14 @@ async def get_current_user_info(current_user: dict = Depends(auth.get_current_us
 async def get_usage_stats(current_user: dict = Depends(auth.get_current_user)):
     """Get user's current month usage statistics."""
     usage = db.get_usage(current_user["id"])
+    return usage
+
+
+@app.get("/api/usage/anonymous")
+async def get_anonymous_usage_stats(request: Request):
+    """Get anonymous user's usage statistics."""
+    identifier = get_client_identifier(request)
+    usage = db.get_anonymous_usage(identifier)
     return usage
 
 
@@ -188,21 +293,42 @@ async def get_stock_info(
     }
 
 
-# Default user ID for non-authenticated access
-DEFAULT_USER_ID = 1
-
-
 # Report Generation Routes
 @app.post("/api/reports/generate")
-async def generate_report(request: GenerateReportRequest):
+async def generate_report(
+    request: Request,
+    report_request: GenerateReportRequest,
+    current_user: Optional[dict] = Depends(auth.get_optional_current_user)
+):
     """Generate a new equity research report."""
+    # Check usage limits
+    if current_user:
+        # Authenticated user - check monthly limit
+        if not db.can_generate_report(current_user["id"]):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Monthly report limit reached (20/month). Limit resets on the 1st of next month."
+            )
+        user_id = current_user["id"]
+        is_anonymous = False
+    else:
+        # Anonymous user - check total limit (3)
+        identifier = get_client_identifier(request)
+        if not db.can_anonymous_generate(identifier):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Free report limit reached (3 reports). Please sign in for 20 reports/month."
+            )
+        user_id = None
+        is_anonymous = True
+
     # Fetch stock data
-    stock_data = fetch_stock_data(request.symbol, request.exchange)
+    stock_data = fetch_stock_data(report_request.symbol, report_request.exchange)
 
     if not stock_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Stock {request.symbol} not found on {request.exchange}"
+            detail=f"Stock {report_request.symbol} not found on {report_request.exchange}"
         )
 
     # Generate AI analysis
@@ -215,24 +341,42 @@ async def generate_report(request: GenerateReportRequest):
     basic = stock_data.get("basic_info", {})
     price = stock_data.get("price_info", {})
 
-    # Save report to database
-    report_id = db.save_report(
-        user_id=DEFAULT_USER_ID,
-        company_name=basic.get("company_name", request.symbol),
-        ticker=basic.get("ticker", request.symbol),
-        exchange=request.exchange,
-        sector=basic.get("sector", ""),
-        current_price=price.get("current_price", 0),
-        target_price=analysis.get("target_price", 0),
-        recommendation=analysis.get("recommendation", "HOLD"),
-        report_html=report_html,
-        report_data=json.dumps({"stock_data": stock_data, "analysis": analysis})
-    )
+    # Save report to database and increment usage
+    if is_anonymous:
+        # For anonymous users, we still save the report but with a special marker
+        # Use a negative ID to indicate anonymous (or you could use user_id = 0)
+        report_id = db.save_report(
+            user_id=0,  # Anonymous user marker
+            company_name=basic.get("company_name", report_request.symbol),
+            ticker=basic.get("ticker", report_request.symbol),
+            exchange=report_request.exchange,
+            sector=basic.get("sector", ""),
+            current_price=price.get("current_price", 0),
+            target_price=analysis.get("target_price", 0),
+            recommendation=analysis.get("recommendation", "HOLD"),
+            report_html=report_html,
+            report_data=json.dumps({"stock_data": stock_data, "analysis": analysis})
+        )
+        db.increment_anonymous_usage(identifier)
+    else:
+        report_id = db.save_report(
+            user_id=user_id,
+            company_name=basic.get("company_name", report_request.symbol),
+            ticker=basic.get("ticker", report_request.symbol),
+            exchange=report_request.exchange,
+            sector=basic.get("sector", ""),
+            current_price=price.get("current_price", 0),
+            target_price=analysis.get("target_price", 0),
+            recommendation=analysis.get("recommendation", "HOLD"),
+            report_html=report_html,
+            report_data=json.dumps({"stock_data": stock_data, "analysis": analysis})
+        )
+        db.increment_usage(user_id)
 
     return {
         "report_id": report_id,
         "company_name": basic.get("company_name", ""),
-        "ticker": request.symbol,
+        "ticker": report_request.symbol,
         "recommendation": analysis.get("recommendation", "HOLD"),
         "target_price": analysis.get("target_price", 0),
         "current_price": price.get("current_price", 0)
@@ -240,16 +384,27 @@ async def generate_report(request: GenerateReportRequest):
 
 
 @app.get("/api/reports")
-async def get_user_reports(limit: int = 50):
-    """Get report history."""
-    reports = db.get_user_reports(DEFAULT_USER_ID, limit=limit)
+async def get_user_reports(
+    limit: int = 50,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Get report history for authenticated user."""
+    reports = db.get_user_reports(current_user["id"], limit=limit)
     return reports
 
 
 @app.get("/api/reports/{report_id}")
-async def get_report(report_id: int):
+async def get_report(
+    report_id: int,
+    current_user: Optional[dict] = Depends(auth.get_optional_current_user)
+):
     """Get a specific report by ID."""
-    report = db.get_report_by_id(report_id, DEFAULT_USER_ID)
+    # For authenticated users, check ownership
+    if current_user:
+        report = db.get_report_by_id(report_id, current_user["id"])
+    else:
+        # Anonymous users can access anonymous reports (user_id = 0)
+        report = db.get_report_by_id(report_id, 0)
 
     if not report:
         raise HTTPException(
@@ -261,9 +416,15 @@ async def get_report(report_id: int):
 
 
 @app.get("/api/reports/{report_id}/html", response_class=HTMLResponse)
-async def get_report_html(report_id: int):
+async def get_report_html(
+    report_id: int,
+    current_user: Optional[dict] = Depends(auth.get_optional_current_user)
+):
     """Get the HTML content of a report for viewing."""
-    report = db.get_report_by_id(report_id, DEFAULT_USER_ID)
+    if current_user:
+        report = db.get_report_by_id(report_id, current_user["id"])
+    else:
+        report = db.get_report_by_id(report_id, 0)
 
     if not report:
         raise HTTPException(
@@ -275,9 +436,12 @@ async def get_report_html(report_id: int):
 
 
 @app.delete("/api/reports/{report_id}")
-async def delete_report(report_id: int):
-    """Delete a report."""
-    deleted = db.delete_report(report_id, DEFAULT_USER_ID)
+async def delete_report(
+    report_id: int,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Delete a report (authenticated users only)."""
+    deleted = db.delete_report(report_id, current_user["id"])
 
     if not deleted:
         raise HTTPException(

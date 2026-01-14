@@ -13,6 +13,15 @@ services:
         generateValue: true  # Render generates a secure random value
       - key: PYTHON_VERSION
         value: 3.11.0
+      # Google OAuth - set these manually in Render dashboard
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        value: https://equity-research-api-xbrq.onrender.com/api/auth/google/callback
+      - key: FRONTEND_URL
+        value: https://equity-research-app.onrender.com
     disk:
       name: data
       mountPath: /opt/render/project/src/data
