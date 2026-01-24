@@ -3,11 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Equity Research Generator</title>
+    <title>Dashboard - Permabullish</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         .gradient-header {
-            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            background: linear-gradient(135deg, #102a43 0%, #1e3a5f 100%);
+        }
+        body {
+            font-family: 'DM Sans', 'Inter', system-ui, sans-serif;
+        }
+        .font-display {
+            font-family: 'DM Serif Display', Georgia, serif;
         }
     </style>
 </head>
@@ -17,12 +26,14 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
                 <div class="flex items-center min-w-0">
-                    <h1 class="text-base sm:text-xl font-bold truncate">Equity Research Generator</h1>
+                    <h1 class="text-base sm:text-xl font-display truncate">
+                        <span>Perma</span><span class="text-[#e8913a]">bullish</span>
+                    </h1>
                 </div>
                 <div class="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
                     <div class="flex items-center space-x-2 sm:space-x-3">
                         <img id="userAvatar" src="" alt="" class="hidden w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-white/30">
-                        <span id="userName" class="hidden sm:inline text-sm text-blue-200 max-w-32 truncate"></span>
+                        <span id="userName" class="hidden sm:inline text-sm text-[#9fb3c8] max-w-32 truncate"></span>
                     </div>
                     <button onclick="logout()" class="text-sm bg-white/10 hover:bg-white/20 px-3 sm:px-4 py-2 rounded-lg transition-all">
                         Logout
@@ -40,17 +51,17 @@
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-sm text-gray-500">Reports Used</p>
-                        <p class="text-3xl font-bold text-gray-900"><span id="reportsUsed">0</span> / <span id="reportsLimit">20</span></p>
+                        <p class="text-3xl font-bold text-[#1e3a5f]"><span id="reportsUsed">0</span> / <span id="reportsLimit">20</span></p>
                     </div>
-                    <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div class="w-12 h-12 bg-[#fdecd4] rounded-full flex items-center justify-center">
+                        <svg class="w-6 h-6 text-[#e8913a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                         </svg>
                     </div>
                 </div>
                 <div class="mt-4">
                     <div class="w-full bg-gray-200 rounded-full h-2">
-                        <div id="usageBar" class="bg-blue-600 h-2 rounded-full transition-all" style="width: 0%"></div>
+                        <div id="usageBar" class="bg-[#e8913a] h-2 rounded-full transition-all" style="width: 0%"></div>
                     </div>
                 </div>
             </div>
@@ -70,10 +81,10 @@
                 <p class="mt-4 text-sm text-gray-500">Resets on <span id="resetDate">-</span></p>
             </div>
 
-            <div class="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl shadow-sm p-6 text-white">
+            <div class="bg-gradient-to-r from-[#1e3a5f] to-[#243b53] rounded-xl shadow-sm p-6 text-white">
                 <h3 class="font-semibold mb-2">Generate New Report</h3>
-                <p class="text-blue-100 text-sm mb-4">Create AI-powered equity research for any Indian stock</p>
-                <a href="generate.html" class="inline-block bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-50 transition-all">
+                <p class="text-[#9fb3c8] text-sm mb-4">Create AI-powered equity research for any Indian stock</p>
+                <a href="generate.html" class="inline-block bg-[#e8913a] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#d97316] transition-all">
                     Generate Report
                 </a>
             </div>
@@ -86,7 +97,7 @@
             </div>
 
             <div id="reportsLoading" class="p-8 text-center">
-                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-[#e8913a] mx-auto"></div>
                 <p class="text-gray-500 mt-2">Loading reports...</p>
             </div>
 
@@ -96,7 +107,7 @@
                 </svg>
                 <h3 class="text-lg font-medium text-gray-900 mb-1">No reports yet</h3>
                 <p class="text-gray-500 mb-4">Generate your first equity research report</p>
-                <a href="generate.html" class="inline-block bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-all">
+                <a href="generate.html" class="inline-block bg-[#e8913a] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#d97316] transition-all">
                     Generate Report
                 </a>
             </div>
@@ -235,7 +246,7 @@
                                     <p class="text-sm text-gray-500">Target</p>
                                 </div>
                                 <div class="flex space-x-2">
-                                    <a href="report.html?id=${report.id}" class="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="View Report">
+                                    <a href="report.html?id=${report.id}" class="p-2 text-[#e8913a] hover:bg-[#fdecd4] rounded-lg transition-all" title="View Report">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>

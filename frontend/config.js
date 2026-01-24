@@ -1,8 +1,7 @@
 // API Configuration
 const CONFIG = {
-    API_BASE: window.location.hostname === 'localhost'
-        ? 'http://localhost:8000/api'
-        : 'https://equity-research-api-xbrq.onrender.com/api'
+    // Using production API for local preview
+    API_BASE: 'https://equity-research-api-xbrq.onrender.com/api'
 };
 
 // Export for use in other files

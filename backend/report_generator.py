@@ -336,7 +336,10 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{basic.get("company_name", "Company")} - Equity Research Report</title>
+    <title>{basic.get("company_name", "Company")} - Equity Research Report | Permabullish</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {{
@@ -346,11 +349,15 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
         }}
 
         :root {{
-            --primary: #1a365d;
-            --primary-light: #2c5282;
+            --primary: #1e3a5f;
+            --primary-light: #243b53;
+            --primary-dark: #102a43;
             --secondary: #38a169;
+            --accent: #e8913a;
+            --accent-hover: #d97316;
+            --accent-light: #fdecd4;
             --danger: #e53e3e;
-            --warning: #d69e2e;
+            --warning: #e8913a;
             --bg-light: #f7fafc;
             --bg-card: #ffffff;
             --text-primary: #1a202c;
@@ -362,10 +369,14 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
         }}
 
         body {{
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-family: 'DM Sans', 'Inter', system-ui, -apple-system, sans-serif;
             background: var(--bg-light);
             color: var(--text-primary);
             line-height: 1.6;
+        }}
+
+        .font-display {{
+            font-family: 'DM Serif Display', Georgia, serif;
         }}
 
         .nav {{
@@ -373,7 +384,7 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
             top: 0;
             left: 0;
             right: 0;
-            background: var(--primary);
+            background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%);
             padding: 0 2rem;
             z-index: 1000;
             box-shadow: var(--shadow-lg);
@@ -397,11 +408,16 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
             gap: 0.75rem;
         }}
 
+        .nav-brand .font-display {{
+            font-family: 'DM Serif Display', Georgia, serif;
+        }}
+
         .nav-brand .ticker {{
             background: rgba(255,255,255,0.2);
             padding: 0.25rem 0.75rem;
             border-radius: 4px;
             font-size: 0.875rem;
+            font-family: 'DM Sans', system-ui, sans-serif;
         }}
 
         .nav-links {{
@@ -425,7 +441,7 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
 
         .header {{
             margin-top: 64px;
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 50%, var(--primary-light) 100%);
             color: white;
             padding: 3rem 2rem;
         }}
@@ -444,6 +460,7 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
         }}
 
         .company-info h1 {{
+            font-family: 'DM Serif Display', Georgia, serif;
             font-size: 2.5rem;
             font-weight: 700;
             margin-bottom: 0.5rem;
@@ -595,7 +612,8 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
             display: flex;
             align-items: center;
             gap: 0.75rem;
-            font-size: 1.125rem;
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 1.25rem;
             font-weight: 600;
             color: var(--primary);
         }}
@@ -706,14 +724,14 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
             align-items: flex-start;
             gap: 1rem;
             padding: 1rem;
-            background: #fffaf0;
+            background: var(--accent-light);
             border-radius: 8px;
             margin-bottom: 0.75rem;
-            border-left: 3px solid var(--warning);
+            border-left: 3px solid var(--accent);
         }}
 
         .risk-icon {{
-            color: var(--warning);
+            color: var(--accent);
             font-size: 1.25rem;
         }}
 
@@ -759,8 +777,8 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
         }}
 
         .disclaimer {{
-            background: #faf5ff;
-            border: 1px solid #e9d8fd;
+            background: var(--bg-light);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1.5rem;
             font-size: 0.85rem;
@@ -769,7 +787,7 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
         }}
 
         .disclaimer h4 {{
-            color: #553c9a;
+            color: var(--primary);
             margin-bottom: 0.75rem;
         }}
 
@@ -794,8 +812,8 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
     <nav class="nav">
         <div class="nav-content">
             <div class="nav-brand">
-                <span>{basic.get("ticker", "")}</span>
-                <span class="ticker">NSE: {basic.get("ticker", "")}</span>
+                <span class="font-display">Perma<span style="color: #e8913a;">bullish</span></span>
+                <span class="ticker">{basic.get("ticker", "")}</span>
             </div>
             <div class="nav-links">
                 <a href="#summary" class="nav-link active">Summary</a>
@@ -940,8 +958,8 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
                     <p style="color: var(--text-secondary); line-height: 1.8;">{news_impact if news_impact else "No significant recent news to analyze."}</p>
                 </div>
 
-                <div style="background: linear-gradient(to right, #fffaf0, transparent); padding: 1.25rem; border-radius: 8px; border-left: 4px solid var(--warning);">
-                    <h4 style="color: var(--warning); margin-bottom: 0.75rem;">Upcoming Catalysts</h4>
+                <div style="background: linear-gradient(to right, var(--accent-light), transparent); padding: 1.25rem; border-radius: 8px; border-left: 4px solid var(--accent);">
+                    <h4 style="color: var(--accent); margin-bottom: 0.75rem;">Upcoming Catalysts</h4>
                     <ul class="catalyst-list" style="list-style: none; padding: 0;">
                         {catalysts_html if catalysts_html else "<li style='color: var(--text-secondary); padding-left: 0;'>No specific near-term catalysts identified.</li>"}
                     </ul>
@@ -1083,9 +1101,12 @@ def generate_report_html(stock_data: Dict[str, Any], analysis: Dict[str, Any]) -
         </section>
     </main>
 
-    <footer style="background: var(--primary); color: white; padding: 2rem; text-align: center; margin-top: 2rem;">
-        <p style="opacity: 0.8; font-size: 0.9rem;">
-            Generated by Equity Research Generator | {report_date} | For Educational Purposes Only
+    <footer style="background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%); color: white; padding: 2rem; text-align: center; margin-top: 2rem;">
+        <p style="font-family: 'DM Serif Display', Georgia, serif; font-size: 1.1rem; margin-bottom: 0.5rem;">
+            Perma<span style="color: #e8913a;">bullish</span>
+        </p>
+        <p style="opacity: 0.8; font-size: 0.85rem;">
+            AI-Powered Equity Research | {report_date} | For Educational Purposes Only
         </p>
     </footer>
 
