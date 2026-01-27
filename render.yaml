@@ -37,3 +37,41 @@ services:
       - path: /*
         name: Cache-Control
         value: no-cache
+
+  # Daily User Report Cron Job (runs at 9:00 AM UTC daily)
+  - type: cron
+    name: daily-user-report
+    runtime: python
+    schedule: "0 9 * * *"
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && python scripts/send_user_report.py daily
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: REPORT_EMAIL_TO
+        value: mail@mayaskara.com
+      - key: RESEND_API_KEY
+        sync: false  # Set in Render dashboard
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
+
+  # Weekly User Report Cron Job (runs Monday at 9:00 AM UTC)
+  - type: cron
+    name: weekly-user-report
+    runtime: python
+    schedule: "0 9 * * 1"
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && python scripts/send_user_report.py weekly
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: REPORT_EMAIL_TO
+        value: mail@mayaskara.com
+      - key: RESEND_API_KEY
+        sync: false  # Set in Render dashboard
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
