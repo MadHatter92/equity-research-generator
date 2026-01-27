@@ -5,7 +5,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, get_tier_limits, is_unlimited
 import database as db
 
 # Password hashing - using pbkdf2_sha256 (no length limit, secure)
@@ -171,3 +171,99 @@ def authenticate_user(email: str, password: str) -> tuple[bool, str, Optional[st
     )
 
     return True, "Login successful", access_token
+
+
+# ============================================
+# Access Control Functions
+# ============================================
+
+def can_create_portfolio(user: dict) -> tuple[bool, str]:
+    """Check if user can create another portfolio."""
+    tier = user.get("subscription_tier", "free")
+    limits = get_tier_limits(tier)
+
+    if is_unlimited(limits["portfolios"]):
+        return True, ""
+
+    current_count = db.get_portfolio_count(user["id"])
+    if current_count >= limits["portfolios"]:
+        return False, f"You have reached the maximum of {limits['portfolios']} portfolio{'s' if limits['portfolios'] != 1 else ''}. Upgrade to create more."
+
+    return True, ""
+
+
+def can_add_to_portfolio(user: dict, portfolio_id: int) -> tuple[bool, str]:
+    """Check if user can add more stocks to a portfolio."""
+    tier = user.get("subscription_tier", "free")
+    limits = get_tier_limits(tier)
+
+    if is_unlimited(limits["portfolio_stocks"]):
+        return True, ""
+
+    current_count = db.get_holding_count(portfolio_id)
+    if current_count >= limits["portfolio_stocks"]:
+        return False, f"Portfolio has reached the maximum of {limits['portfolio_stocks']} stocks. Upgrade to add more."
+
+    return True, ""
+
+
+def can_create_watchlist(user: dict) -> tuple[bool, str]:
+    """Check if user can create another watchlist."""
+    tier = user.get("subscription_tier", "free")
+    limits = get_tier_limits(tier)
+
+    if is_unlimited(limits["watchlists"]):
+        return True, ""
+
+    current_count = db.get_watchlist_count(user["id"])
+    if current_count >= limits["watchlists"]:
+        return False, f"You have reached the maximum of {limits['watchlists']} watchlist{'s' if limits['watchlists'] != 1 else ''}. Upgrade to create more."
+
+    return True, ""
+
+
+def can_add_to_watchlist(user: dict, watchlist_id: int) -> tuple[bool, str]:
+    """Check if user can add more stocks to a watchlist."""
+    tier = user.get("subscription_tier", "free")
+    limits = get_tier_limits(tier)
+
+    if is_unlimited(limits["watchlist_stocks"]):
+        return True, ""
+
+    current_count = db.get_watchlist_item_count(watchlist_id)
+    if current_count >= limits["watchlist_stocks"]:
+        return False, f"Watchlist has reached the maximum of {limits['watchlist_stocks']} stocks. Upgrade to add more."
+
+    return True, ""
+
+
+def can_access_mf_analytics(user: dict) -> bool:
+    """Check if user has access to MF Analytics."""
+    if not user:
+        return False
+    tier = user.get("subscription_tier", "free")
+    limits = get_tier_limits(tier)
+    return limits["mf_analytics_access"]
+
+
+def can_access_pms_tracker(user: dict) -> bool:
+    """Check if user has access to PMS Tracker."""
+    if not user:
+        return False
+    tier = user.get("subscription_tier", "free")
+    limits = get_tier_limits(tier)
+    return limits["pms_tracker_access"]
+
+
+def require_tier(*allowed_tiers: str):
+    """Dependency to require specific subscription tiers."""
+    async def tier_checker(current_user: dict = Depends(get_current_user)):
+        user_tier = current_user.get("subscription_tier", "free")
+        if user_tier not in allowed_tiers:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This feature requires {' or '.join(allowed_tiers)} subscription",
+                headers={"X-Required-Tier": ",".join(allowed_tiers)}
+            )
+        return current_user
+    return tier_checker

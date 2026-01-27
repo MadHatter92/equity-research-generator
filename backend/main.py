@@ -13,6 +13,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import database as db
 import auth
+from auth import can_create_portfolio, can_add_to_portfolio, can_create_watchlist, can_add_to_watchlist
 from yahoo_finance import fetch_stock_data, search_stocks
 from report_generator import generate_ai_analysis, generate_report_html
 from config import (
@@ -94,6 +95,34 @@ class TokenResponse(BaseModel):
 class MessageResponse(BaseModel):
     message: str
     success: bool = True
+
+
+class CreatePortfolioRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class UpdatePortfolioRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class AddHoldingRequest(BaseModel):
+    ticker: str
+    exchange: str = "NSE"
+    quantity: Optional[float] = None
+    buy_price: Optional[float] = None
+    buy_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class CreateWatchlistRequest(BaseModel):
+    name: str
+
+
+class AddWatchlistItemRequest(BaseModel):
+    ticker: str
+    exchange: str = "NSE"
 
 
 # Auth Routes
@@ -450,6 +479,380 @@ async def delete_report(
         )
 
     return {"message": "Report deleted successfully"}
+
+
+# ============================================
+# User Limits Routes
+# ============================================
+
+@app.get("/api/user/limits")
+async def get_user_limits(
+    request: Request,
+    current_user: Optional[dict] = Depends(auth.get_optional_current_user)
+):
+    """Get user's tier limits and current usage."""
+    identifier = get_client_identifier(request) if not current_user else None
+    limits = db.get_user_limits(current_user, identifier)
+    return limits
+
+
+@app.get("/api/user/profile")
+async def get_user_profile(
+    request: Request,
+    current_user: Optional[dict] = Depends(auth.get_optional_current_user)
+):
+    """Get user profile with limits."""
+    if not current_user:
+        identifier = get_client_identifier(request)
+        limits = db.get_user_limits(None, identifier)
+        return {
+            "is_guest": True,
+            "limits": limits
+        }
+
+    limits = db.get_user_limits(current_user)
+    return {
+        "is_guest": False,
+        "id": current_user["id"],
+        "email": current_user["email"],
+        "full_name": current_user["full_name"],
+        "subscription_tier": current_user.get("subscription_tier", "free"),
+        "avatar_url": current_user.get("avatar_url"),
+        "limits": limits
+    }
+
+
+# ============================================
+# Portfolio Routes
+# ============================================
+
+@app.get("/api/portfolios")
+async def list_portfolios(current_user: dict = Depends(auth.get_current_user)):
+    """List user's portfolios."""
+    portfolios = db.get_portfolios_by_user_id(current_user["id"])
+
+    # Add holdings to each portfolio
+    result = []
+    for p in portfolios:
+        holdings = db.get_holdings_by_portfolio_id(p["id"])
+        result.append({
+            **p,
+            "holdings": holdings
+        })
+
+    return {"portfolios": result}
+
+
+@app.post("/api/portfolios")
+async def create_portfolio(
+    request_data: CreatePortfolioRequest,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Create a new portfolio."""
+    # Check limit
+    allowed, reason = can_create_portfolio(current_user)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=reason
+        )
+
+    portfolio = db.create_portfolio(
+        current_user["id"],
+        request_data.name.strip(),
+        request_data.description.strip() if request_data.description else None
+    )
+
+    if not portfolio:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to create portfolio"
+        )
+
+    return {"portfolio": {**portfolio, "holdings": []}}
+
+
+@app.get("/api/portfolios/{portfolio_id}")
+async def get_portfolio(
+    portfolio_id: int,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Get portfolio details."""
+    if not db.is_portfolio_owner(portfolio_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found"
+        )
+
+    portfolio = db.get_portfolio_by_id(portfolio_id)
+    if not portfolio:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found"
+        )
+
+    holdings = db.get_holdings_by_portfolio_id(portfolio_id)
+    return {"portfolio": {**portfolio, "holdings": holdings}}
+
+
+@app.put("/api/portfolios/{portfolio_id}")
+async def update_portfolio(
+    portfolio_id: int,
+    request_data: UpdatePortfolioRequest,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Update a portfolio."""
+    if not db.is_portfolio_owner(portfolio_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found"
+        )
+
+    portfolio = db.update_portfolio(
+        portfolio_id,
+        name=request_data.name.strip() if request_data.name else None,
+        description=request_data.description.strip() if request_data.description else None
+    )
+
+    holdings = db.get_holdings_by_portfolio_id(portfolio_id)
+    return {"portfolio": {**portfolio, "holdings": holdings}}
+
+
+@app.delete("/api/portfolios/{portfolio_id}")
+async def delete_portfolio(
+    portfolio_id: int,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Delete a portfolio."""
+    if not db.is_portfolio_owner(portfolio_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found"
+        )
+
+    deleted = db.delete_portfolio(portfolio_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found"
+        )
+
+    return {"success": True}
+
+
+@app.post("/api/portfolios/{portfolio_id}/stocks")
+async def add_portfolio_stock(
+    portfolio_id: int,
+    request_data: AddHoldingRequest,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Add a stock to a portfolio."""
+    if not db.is_portfolio_owner(portfolio_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found"
+        )
+
+    # Check limit
+    allowed, reason = can_add_to_portfolio(current_user, portfolio_id)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=reason
+        )
+
+    holding = db.add_holding(
+        portfolio_id,
+        request_data.ticker.strip().upper(),
+        request_data.exchange,
+        request_data.quantity,
+        request_data.buy_price,
+        request_data.buy_date,
+        request_data.notes
+    )
+
+    if not holding:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Stock already in portfolio"
+        )
+
+    return {"holding": holding}
+
+
+@app.delete("/api/portfolios/{portfolio_id}/stocks/{ticker}")
+async def remove_portfolio_stock(
+    portfolio_id: int,
+    ticker: str,
+    exchange: str = "NSE",
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Remove a stock from a portfolio."""
+    if not db.is_portfolio_owner(portfolio_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found"
+        )
+
+    deleted = db.delete_holding(portfolio_id, ticker.upper(), exchange)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Stock not found in portfolio"
+        )
+
+    return {"success": True}
+
+
+# ============================================
+# Watchlist Routes
+# ============================================
+
+@app.get("/api/watchlists")
+async def list_watchlists(current_user: dict = Depends(auth.get_current_user)):
+    """List user's watchlists."""
+    watchlists = db.get_watchlists_by_user_id(current_user["id"])
+
+    # Add items to each watchlist
+    result = []
+    for w in watchlists:
+        items = db.get_watchlist_items_by_watchlist_id(w["id"])
+        result.append({
+            **w,
+            "items": items
+        })
+
+    return {"watchlists": result}
+
+
+@app.post("/api/watchlists")
+async def create_watchlist(
+    request_data: CreateWatchlistRequest,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Create a new watchlist."""
+    # Check limit
+    allowed, reason = can_create_watchlist(current_user)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=reason
+        )
+
+    watchlist = db.create_watchlist(current_user["id"], request_data.name.strip())
+
+    if not watchlist:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to create watchlist"
+        )
+
+    return {"watchlist": {**watchlist, "items": []}}
+
+
+@app.get("/api/watchlists/{watchlist_id}")
+async def get_watchlist(
+    watchlist_id: int,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Get watchlist details."""
+    if not db.is_watchlist_owner(watchlist_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Watchlist not found"
+        )
+
+    watchlist = db.get_watchlist_by_id(watchlist_id)
+    if not watchlist:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Watchlist not found"
+        )
+
+    items = db.get_watchlist_items_by_watchlist_id(watchlist_id)
+    return {"watchlist": {**watchlist, "items": items}}
+
+
+@app.delete("/api/watchlists/{watchlist_id}")
+async def delete_watchlist(
+    watchlist_id: int,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Delete a watchlist."""
+    if not db.is_watchlist_owner(watchlist_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Watchlist not found"
+        )
+
+    deleted = db.delete_watchlist(watchlist_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Watchlist not found"
+        )
+
+    return {"success": True}
+
+
+@app.post("/api/watchlists/{watchlist_id}/stocks")
+async def add_watchlist_stock(
+    watchlist_id: int,
+    request_data: AddWatchlistItemRequest,
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Add a stock to a watchlist."""
+    if not db.is_watchlist_owner(watchlist_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Watchlist not found"
+        )
+
+    # Check limit
+    allowed, reason = can_add_to_watchlist(current_user, watchlist_id)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=reason
+        )
+
+    item = db.add_watchlist_item(
+        watchlist_id,
+        request_data.ticker.strip().upper(),
+        request_data.exchange
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Stock already in watchlist"
+        )
+
+    return {"item": item}
+
+
+@app.delete("/api/watchlists/{watchlist_id}/stocks/{ticker}")
+async def remove_watchlist_stock(
+    watchlist_id: int,
+    ticker: str,
+    exchange: str = "NSE",
+    current_user: dict = Depends(auth.get_current_user)
+):
+    """Remove a stock from a watchlist."""
+    if not db.is_watchlist_owner(watchlist_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Watchlist not found"
+        )
+
+    deleted = db.delete_watchlist_item(watchlist_id, ticker.upper(), exchange)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Stock not found in watchlist"
+        )
+
+    return {"success": True}
 
 
 # Health check
